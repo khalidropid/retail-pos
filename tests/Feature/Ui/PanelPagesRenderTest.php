@@ -6,6 +6,7 @@ use App\Models\User;
 use Database\Seeders\CatalogSeeder;
 use Database\Seeders\UserSeeder;
 use Filament\Facades\Filament;
+use Livewire\Livewire;
 use Tests\TestCase;
 
 /**
@@ -49,5 +50,27 @@ class PanelPagesRenderTest extends TestCase
         }
 
         $this->assertSame([], $failures, implode("\n", $failures));
+    }
+
+    public function test_every_relation_manager_renders_for_admin(): void
+    {
+        $this->seed([UserSeeder::class, CatalogSeeder::class]);
+        $this->actingAs(User::query()->where('email', 'admin@pos.test')->firstOrFail());
+
+        $rendered = 0;
+        foreach (Filament::getPanel('admin')->getResources() as $resource) {
+            $record = $resource::getModel()::query()->first();
+            $pages = $resource::getPages();
+            $page = ($pages['view'] ?? $pages['edit'] ?? null)?->getPage();
+            if (! $record || ! $page) {
+                continue;
+            }
+            foreach ($resource::getRelations() as $manager) {
+                Livewire::test($manager, ['ownerRecord' => $record, 'pageClass' => $page])->assertSuccessful();
+                $rendered++;
+            }
+        }
+
+        $this->assertGreaterThan(0, $rendered);
     }
 }

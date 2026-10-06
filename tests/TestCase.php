@@ -3,6 +3,7 @@
 namespace Tests;
 
 use App\Models\User;
+use Database\Seeders\PaymentMethodSeeder;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Database\Seeders\SettingsSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -16,7 +17,7 @@ abstract class TestCase extends BaseTestCase
     {
         parent::setUp();
 
-        $this->seed([SettingsSeeder::class, RolesAndPermissionsSeeder::class]);
+        $this->seed([SettingsSeeder::class, RolesAndPermissionsSeeder::class, PaymentMethodSeeder::class]);
     }
 
     protected function userWithRole(string $role, array $attributes = []): User

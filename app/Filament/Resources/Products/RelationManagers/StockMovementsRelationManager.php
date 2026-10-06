@@ -30,7 +30,7 @@ class StockMovementsRelationManager extends RelationManager
     {
         return $table
             ->defaultSort('id', 'desc')
-            ->modifyQueryUsing(fn ($q) => $q->with('user'))
+            ->modifyQueryUsing(fn ($query) => $query->with('user'))
             ->columns([
                 TextColumn::make('created_at')->label('التاريخ')->dateTime('Y-m-d H:i'),
                 TextColumn::make('type')->label('النوع')->badge(),
