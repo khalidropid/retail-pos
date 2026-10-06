@@ -37,6 +37,16 @@ class Customer extends Model
         });
     }
 
+    public function sales(): HasMany
+    {
+        return $this->hasMany(Sale::class);
+    }
+
+    public function payments(): HasMany
+    {
+        return $this->hasMany(CustomerPayment::class);
+    }
+
     public function ledgerEntries(): HasMany
     {
         return $this->hasMany(CustomerLedgerEntry::class);
