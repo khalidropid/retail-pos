@@ -7,9 +7,13 @@ use App\Filament\Resources\Customers\Pages\EditCustomer;
 use App\Filament\Resources\Customers\Pages\ListCustomers;
 use App\Filament\Resources\Customers\Pages\ViewCustomer;
 use App\Filament\Resources\Customers\RelationManagers\LedgerEntriesRelationManager;
+use App\Filament\Resources\Customers\RelationManagers\PaymentsRelationManager;
+use App\Filament\Resources\Customers\RelationManagers\SalesRelationManager;
 use App\Filament\Support\Domain;
 use App\Models\Customer;
 use App\Services\CustomerService;
+use App\Services\CustomerStatementService;
+use App\Services\ReceivableService;
 use App\Support\Money;
 use BackedEnum;
 use Filament\Actions\Action;
@@ -99,6 +103,14 @@ class CustomerResource extends Resource
                 TextEntry::make('credit_limit')->label('الحد الائتماني')->formatStateUsing(fn ($state) => money($state)),
                 TextEntry::make('available_credit')->label('الرصيد المتاح')->state(fn (Customer $record) => money($record->availableCredit())),
                 TextEntry::make('credit_days_label')->label('مدة السداد')->state(fn (Customer $record) => $record->effectiveCreditDays().' يوم'),
+                TextEntry::make('summary_sales')->label('إجمالي المبيعات')
+                    ->state(fn (Customer $record) => money(app(CustomerStatementService::class)->summary($record)['total_sales'])),
+                TextEntry::make('summary_payments')->label('إجمالي المدفوعات')
+                    ->state(fn (Customer $record) => money(app(CustomerStatementService::class)->summary($record)['total_payments'])),
+                TextEntry::make('summary_returns')->label('إجمالي المرتجعات')
+                    ->state(fn (Customer $record) => money(app(CustomerStatementService::class)->summary($record)['total_returns'])),
+                TextEntry::make('summary_overdue')->label('المتأخر')->color('danger')
+                    ->state(fn (Customer $record) => money(app(ReceivableService::class)->overdueAmount($record))),
             ]),
         ]);
     }
@@ -147,7 +159,7 @@ class CustomerResource extends Resource
 
     public static function getRelations(): array
     {
-        return [LedgerEntriesRelationManager::class];
+        return [SalesRelationManager::class, PaymentsRelationManager::class, LedgerEntriesRelationManager::class];
     }
 
     public static function getPages(): array

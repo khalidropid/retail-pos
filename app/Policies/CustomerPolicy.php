@@ -17,6 +17,12 @@ class CustomerPolicy
         return $user->can('customers.view');
     }
 
+    /** Account statement exposes debts. */
+    public function viewStatement(User $user, Customer $customer): bool
+    {
+        return $user->can('customers.view') && $user->can('customers.view_debts');
+    }
+
     public function create(User $user): bool
     {
         return $user->can('customers.create');
