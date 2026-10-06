@@ -2,6 +2,11 @@
 
 namespace App\Http\Controllers;
 
+use App\Filament\Pages\Reports\CustomerReports;
+use App\Filament\Pages\Reports\FinancialReports;
+use App\Filament\Pages\Reports\InventoryReports;
+use App\Filament\Pages\Reports\PurchaseReports;
+use App\Filament\Pages\Reports\SalesReports;
 use App\Models\Customer;
 use App\Models\CustomerPayment;
 use App\Models\Sale;
@@ -52,6 +57,33 @@ class PrintController extends Controller
         }
 
         return view('print.customer-statement', ['s' => $statement, 'summary' => $summary]);
+    }
+
+    public function report(Request $request): View
+    {
+        $data = $request->validate([
+            'page' => ['required', 'string'],
+            'report' => ['required', 'string', 'max:50'],
+            'from' => ['nullable', 'date'],
+            'to' => ['nullable', 'date'],
+        ]);
+
+        $pages = collect([
+            SalesReports::class,
+            InventoryReports::class,
+            PurchaseReports::class,
+            CustomerReports::class,
+            FinancialReports::class,
+        ])->keyBy(fn ($class) => $class::getSlug());
+
+        $page = $pages->get($data['page']) ?? abort(404);
+        abort_unless($page::canAccess(), 403);
+
+        return view('print.report', [
+            'r' => $page::buildReport($data['report'], $data['from'] ?? null, $data['to'] ?? null),
+            'from' => $data['from'] ?? null,
+            'to' => $data['to'] ?? null,
+        ]);
     }
 
     private function pdf(string $html, string $filename): Response
