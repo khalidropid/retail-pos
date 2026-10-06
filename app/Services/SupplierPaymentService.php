@@ -2,9 +2,12 @@
 
 namespace App\Services;
 
+use App\Enums\CashDirection;
+use App\Enums\CashMovementType;
 use App\Enums\RecordStatus;
 use App\Enums\SupplierLedgerType;
 use App\Exceptions\BusinessException;
+use App\Models\CashRegisterSession;
 use App\Models\PaymentMethod;
 use App\Models\Purchase;
 use App\Models\Supplier;
@@ -19,6 +22,7 @@ class SupplierPaymentService
     public function __construct(
         private NumberingService $numbers,
         private SupplierAccountService $accounts,
+        private CashRegisterService $registers,
         private AuditLogger $audit,
     ) {}
 
@@ -55,15 +59,14 @@ class SupplierPaymentService
                 }
             }
 
-            if ($method->isCash()) {
-                throw new BusinessException('الدفع النقدي للموردين من الصندوق غير متاح بعد.');
-            }
+            $session = $method->isCash() ? $this->registers->requireOpenSession($actor) : null;
 
             $payment = SupplierPayment::query()->create([
                 'number' => $this->numbers->next('supplier_payment'),
                 'supplier_id' => $supplier->id,
                 'purchase_id' => $purchaseId,
                 'payment_method_id' => $method->id,
+                'cash_register_session_id' => $session?->id,
                 'amount' => $amount,
                 'payment_date' => now(),
                 'user_id' => $actor->id,
@@ -73,6 +76,11 @@ class SupplierPaymentService
 
             if (isset($purchase)) {
                 $purchase->update(['paid_amount' => Money::add($purchase->paid_amount, $amount)]);
+            }
+
+            if ($session) {
+                $this->registers->record($session, CashMovementType::SupplierPayment, CashDirection::Out, $amount, $actor, $payment,
+                    "دفعة للمورد {$supplier->name} ({$payment->number})");
             }
 
             $this->accounts->post($supplier, SupplierLedgerType::Payment, $amount, '0',
@@ -105,6 +113,13 @@ class SupplierPaymentService
                 'voided_by' => $actor->id,
                 'void_reason' => $reason,
             ]);
+
+            if ($payment->cash_register_session_id) {
+                $original = CashRegisterSession::query()->findOrFail($payment->cash_register_session_id);
+                $session = $original->isOpen() ? $original : $this->registers->requireOpenSession($actor);
+                $this->registers->record($session, CashMovementType::SupplierPaymentReversal, CashDirection::In, $payment->amount, $actor, $payment,
+                    "عكس دفعة المورد {$payment->number}");
+            }
 
             if ($payment->purchase_id) {
                 $purchase = Purchase::query()->lockForUpdate()->findOrFail($payment->purchase_id);

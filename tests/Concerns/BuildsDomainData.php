@@ -2,8 +2,11 @@
 
 namespace Tests\Concerns;
 
+use App\Models\CashRegister;
+use App\Models\CashRegisterSession;
 use App\Models\Product;
 use App\Models\User;
+use App\Services\CashRegisterService;
 use App\Services\InventoryService;
 
 trait BuildsDomainData
@@ -23,5 +26,12 @@ trait BuildsDomainData
     {
         return User::query()->where('email', 'system@pos.test')->first()
             ?? tap(User::factory()->create(['email' => 'system@pos.test', 'name' => 'النظام']))->assignRole('admin');
+    }
+
+    protected function openRegister(User $user, string|int $opening = 0): CashRegisterSession
+    {
+        $register = CashRegister::query()->create(['name' => 'صندوق '.uniqid()]);
+
+        return app(CashRegisterService::class)->openRegister($register, $opening, $user);
     }
 }
