@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Enums\CashDirection;
 use App\Enums\CashMovementType;
 use App\Enums\CustomerLedgerType;
+use App\Enums\PaymentStatus;
 use App\Enums\RecordStatus;
 use App\Enums\SaleStatus;
 use App\Enums\SaleType;
@@ -83,6 +84,12 @@ class SaleService
                 throw new BusinessException('يجب فتح صندوق قبل البيع.');
             }
 
+            // Lock order everywhere: customer -> sale -> products -> register.
+            $customer = null;
+            if (! empty($data['customer_id'])) {
+                $customer = Customer::query()->lockForUpdate()->findOrFail($data['customer_id']);
+            }
+
             // 1) Lock products in id order and price the lines from the DB.
             $products = $this->inventory->lockProducts(array_column($items, 'product_id'));
             $calcLines = [];
@@ -141,10 +148,6 @@ class SaleService
             $total = $calc['total'];
 
             // 2) Payment / credit rules.
-            $customer = null;
-            if (! empty($data['customer_id'])) {
-                $customer = Customer::query()->lockForUpdate()->findOrFail($data['customer_id']);
-            }
 
             $method = null;
             $paid = Money::round($data['paid_amount'] ?? ($type === SaleType::Cash ? $total : 0));
@@ -283,6 +286,9 @@ class SaleService
         }
 
         return DB::transaction(function () use ($sale, $reason, $user) {
+            if ($sale->customer_id) {
+                Customer::query()->withTrashed()->lockForUpdate()->findOrFail($sale->customer_id);
+            }
             $sale = Sale::query()->lockForUpdate()->findOrFail($sale->id);
 
             if ($sale->isCancelled()) {
@@ -330,6 +336,7 @@ class SaleService
 
             $sale->update([
                 'status' => SaleStatus::Cancelled,
+                'payment_status' => PaymentStatus::Unpaid,
                 'paid_amount' => 0,
                 'balance_due' => 0,
                 'cancelled_at' => now(),

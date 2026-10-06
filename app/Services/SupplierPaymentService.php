@@ -102,6 +102,8 @@ class SupplierPaymentService
         }
 
         return DB::transaction(function () use ($payment, $reason, $actor) {
+            // Lock order: supplier -> payment -> purchase (same as pay()).
+            Supplier::query()->lockForUpdate()->findOrFail($payment->supplier_id);
             $payment = SupplierPayment::query()->lockForUpdate()->findOrFail($payment->id);
             if ($payment->isVoided()) {
                 throw new BusinessException('هذه الدفعة معكوسة مسبقًا.');

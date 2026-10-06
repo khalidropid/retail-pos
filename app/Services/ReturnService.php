@@ -8,6 +8,7 @@ use App\Enums\CustomerLedgerType;
 use App\Enums\SaleStatus;
 use App\Enums\StockMovementType;
 use App\Exceptions\BusinessException;
+use App\Models\Customer;
 use App\Models\PaymentMethod;
 use App\Models\Sale;
 use App\Models\SaleItem;
@@ -50,6 +51,10 @@ class ReturnService
         }
 
         return DB::transaction(function () use ($sale, $lines, $reason, $user, $refundMethodId) {
+            // Lock order: customer -> sale -> items/products -> register.
+            if ($sale->customer_id) {
+                Customer::query()->withTrashed()->lockForUpdate()->findOrFail($sale->customer_id);
+            }
             $sale = Sale::query()->lockForUpdate()->findOrFail($sale->id);
             if ($sale->isCancelled()) {
                 throw new BusinessException('لا يمكن إرجاع أصناف من فاتورة ملغاة.');

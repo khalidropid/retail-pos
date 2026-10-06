@@ -228,17 +228,18 @@ class CustomerPaymentService
             throw new BusinessException('يجب ذكر سبب عكس الدفعة.');
         }
 
+        if ($payment->customer_id === null) {
+            throw new BusinessException('دفعة بيع نقدي بدون عميل لا تُعكس منفردة. ألغِ الفاتورة نفسها بدلًا من ذلك.');
+        }
+
         return DB::transaction(function () use ($payment, $reason, $user) {
+            // Lock order: customer -> payment -> sales -> register.
+            $customer = Customer::query()->withTrashed()->lockForUpdate()->findOrFail($payment->customer_id);
             $payment = CustomerPayment::query()->lockForUpdate()->findOrFail($payment->id);
 
             if ($payment->isVoided()) {
                 throw new BusinessException('هذه الدفعة معكوسة مسبقًا.');
             }
-            if ($payment->customer_id === null) {
-                throw new BusinessException('دفعة بيع نقدي بدون عميل لا تُعكس منفردة. ألغِ الفاتورة نفسها بدلًا من ذلك.');
-            }
-
-            $customer = Customer::query()->withTrashed()->lockForUpdate()->findOrFail($payment->customer_id);
             $allocations = $payment->allocations()->get();
             $sales = Sale::query()->whereIn('id', $allocations->pluck('sale_id'))->orderBy('id')->lockForUpdate()->get()->keyBy('id');
 

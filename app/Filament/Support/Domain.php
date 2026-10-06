@@ -3,9 +3,11 @@
 namespace App\Filament\Support;
 
 use App\Exceptions\BusinessException;
+use App\Support\DbConflict;
 use Filament\Notifications\Notification;
 use Filament\Support\Exceptions\Halt;
 use Illuminate\Auth\Access\AuthorizationException;
+use Illuminate\Database\QueryException;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -33,6 +35,13 @@ final class Domain
         } catch (AuthorizationException $e) {
             Notification::make()->danger()->title('غير مصرح')
                 ->body($e->getMessage() ?: 'ليس لديك صلاحية لتنفيذ هذه العملية.')->persistent()->send();
+
+            throw new Halt;
+        } catch (QueryException $e) {
+            if (! DbConflict::is($e)) {
+                throw $e;
+            }
+            Notification::make()->warning()->title('أعد المحاولة')->body(DbConflict::MESSAGE)->persistent()->send();
 
             throw new Halt;
         } catch (ValidationException $e) {

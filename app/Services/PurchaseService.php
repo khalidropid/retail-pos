@@ -83,6 +83,11 @@ class PurchaseService
             throw new BusinessException('يجب إضافة صنف واحد على الأقل إلى أمر الشراء.');
         }
 
+        $productIds = array_column($items, 'product_id');
+        if (count($productIds) !== count(array_unique($productIds))) {
+            throw new BusinessException('لا يمكن تكرار المنتج نفسه في أمر الشراء. اجمع الكميات في سطر واحد.');
+        }
+
         $purchase->items()->delete();
         $subtotal = '0';
         $tax = '0';
@@ -146,7 +151,11 @@ class PurchaseService
             throw new BusinessException('أدخل كمية مستلمة لصنف واحد على الأقل.');
         }
 
-        $receipt = DB::transaction(function () use ($purchase, $lines, $actor, $notes) {
+        // Receipt and optional immediate payment commit together or not at all,
+        // so a failed payment can never leave a half-recorded receipt behind.
+        $receipt = DB::transaction(function () use ($purchase, $lines, $actor, $notes, $payment) {
+            // Lock order everywhere: supplier -> purchase -> items -> products -> register.
+            Supplier::query()->lockForUpdate()->findOrFail($purchase->supplier_id);
             $purchase = Purchase::query()->lockForUpdate()->findOrFail($purchase->id);
             if (! $purchase->canReceive()) {
                 throw new BusinessException('لا يمكن الاستلام على أمر شراء بحالة: '.$purchase->status->getLabel());
@@ -193,6 +202,7 @@ class PurchaseService
 
                 if (! Money::eq($oldCost, $newCost)) {
                     DB::table('products')->where('id', $product->id)->update(['cost_price' => $newCost]);
+                    $product->cost_price = $newCost;
                     $this->audit->log('price_changed', $product, ['cost_price' => $oldCost], ['cost_price' => $newCost],
                         description: "تحديث التكلفة من استلام {$receipt->number}", userId: $actor->id);
                 }
@@ -232,22 +242,20 @@ class PurchaseService
                 'purchase' => $purchase->number, 'receipt' => $receipt->number, 'total' => $total,
             ], userId: $actor->id);
 
+            if (! empty($payment['amount']) && Money::isPositive($payment['amount'])) {
+                $this->payments->pay(
+                    $purchase->supplier()->firstOrFail(),
+                    (string) $payment['amount'],
+                    (int) $payment['payment_method_id'],
+                    $actor,
+                    $purchase->id,
+                    $payment['reference'] ?? null,
+                    'دفعة عند الاستلام '.$receipt->number,
+                );
+            }
+
             return $receipt->load('items');
         });
-
-        // Optional immediate payment. Runs after the receipt commits so a
-        // payment problem never loses the stock that physically arrived.
-        if (! empty($payment['amount']) && Money::isPositive($payment['amount'])) {
-            $this->payments->pay(
-                $purchase->supplier()->firstOrFail(),
-                (string) $payment['amount'],
-                (int) $payment['payment_method_id'],
-                $actor,
-                $purchase->id,
-                $payment['reference'] ?? null,
-                'دفعة عند الاستلام '.$receipt->number,
-            );
-        }
 
         return $receipt;
     }
@@ -300,6 +308,7 @@ class PurchaseService
         }
 
         return DB::transaction(function () use ($purchase, $lines, $reason, $actor) {
+            Supplier::query()->lockForUpdate()->findOrFail($purchase->supplier_id);
             $purchase = Purchase::query()->lockForUpdate()->findOrFail($purchase->id);
             $items = PurchaseItem::query()->where('purchase_id', $purchase->id)->lockForUpdate()->get()->keyBy('id');
             $products = $this->inventory->lockProducts($items->pluck('product_id')->all());

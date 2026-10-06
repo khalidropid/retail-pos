@@ -4,13 +4,15 @@ namespace App\Services\Sales;
 
 use App\Exceptions\BusinessException;
 use App\Support\Money;
+use Brick\Math\RoundingMode;
 
 /**
  * Pure invoice math (no database access).
  *
  * - Line discount is an amount on the line.
  * - The invoice-level discount is spread over lines in proportion to their
- *   net amount; the last line absorbs rounding so the parts add up exactly.
+ *   net amount (largest-remainder in whole cents), so the parts add up
+ *   exactly and no line can go below zero.
  *   Storing the allocated share per line lets returns refund the right value.
  * - Tax is per line, either added on top (exclusive) or extracted from the
  *   price (inclusive).
@@ -50,20 +52,12 @@ final class SaleCalculator
             throw new BusinessException('خصم الفاتورة أكبر من قيمة الأصناف.');
         }
 
+        $shares = self::allocate($invoiceDiscount, array_map(fn ($p) => $p['net'], $prepared));
         $result = [];
-        $allocated = '0';
-        $keys = array_keys($prepared);
-        $lastKey = end($keys);
         $totals = ['subtotal' => '0', 'discount' => '0', 'tax' => '0', 'total' => '0'];
 
         foreach ($prepared as $i => $p) {
-            if ($i === $lastKey) {
-                $share = Money::sub($invoiceDiscount, $allocated);
-            } else {
-                $share = Money::isZero($netSum) ? '0' : Money::div(Money::of($invoiceDiscount)->multipliedBy(Money::of($p['net'])), $netSum, 2);
-                $allocated = Money::add($allocated, $share);
-            }
-
+            $share = $shares[$i];
             $discount = Money::add($p['line_discount'], $share);
             $net = Money::sub($p['gross'], $discount);
             $rate = $taxEnabled ? Money::round($p['tax_rate']) : '0';
@@ -88,5 +82,45 @@ final class SaleCalculator
         }
 
         return ['lines' => $result] + $totals;
+    }
+
+    /**
+     * Split $amount over $weights in proportion, in whole cents, using the
+     * largest-remainder method: shares always sum to $amount exactly and no
+     * share exceeds its weight (so no line can go negative).
+     *
+     * @param  array<int|string, string>  $weights
+     * @return array<int|string, string>
+     */
+    public static function allocate(string $amount, array $weights): array
+    {
+        $totalWeight = array_reduce($weights, fn ($c, $w) => Money::add($c, $w), '0');
+        if (Money::isZero($amount) || ! Money::isPositive($totalWeight)) {
+            return array_map(fn () => '0.00', $weights);
+        }
+
+        $cents = (int) (string) Money::of($amount)->multipliedBy(100)->toScale(0);
+        $floors = [];
+        $fractions = [];
+        foreach ($weights as $key => $weight) {
+            $exact = Money::of($cents)->multipliedBy(Money::of($weight))->dividedBy(Money::of($totalWeight), 6, RoundingMode::Down);
+            $floors[$key] = (int) (string) $exact->toScale(0, RoundingMode::Down);
+            $fractions[$key] = (string) $exact->minus($floors[$key]);
+        }
+
+        $remaining = $cents - array_sum($floors);
+        arsort($fractions, SORT_NUMERIC);
+        foreach (array_keys($fractions) as $key) {
+            if ($remaining <= 0) {
+                break;
+            }
+            $capCents = (int) (string) Money::of($weights[$key])->multipliedBy(100)->toScale(0, RoundingMode::Down);
+            if ($floors[$key] < $capCents) {
+                $floors[$key]++;
+                $remaining--;
+            }
+        }
+
+        return array_map(fn ($c) => Money::div($c, 100), $floors);
     }
 }

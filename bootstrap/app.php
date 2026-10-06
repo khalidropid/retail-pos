@@ -2,7 +2,9 @@
 
 use App\Http\Middleware\EnsureUserIsActive;
 use App\Http\Middleware\SecurityHeaders;
+use App\Support\DbConflict;
 use Illuminate\Auth\Access\AuthorizationException;
+use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
@@ -24,6 +26,11 @@ return Application::configure(basePath: dirname(__DIR__))
         $exceptions->shouldRenderJsonWhen(
             fn (Request $request) => $request->is('api/*') || $request->expectsJson(),
         );
+        $exceptions->render(function (QueryException $e, Request $request) {
+            if ($request->is('api/*') && DbConflict::is($e)) {
+                return response()->json(['message' => DbConflict::MESSAGE], 409);
+            }
+        });
         // Domain rule violations and authorization failures carry Arabic messages.
         $exceptions->render(function (AuthorizationException $e, Request $request) {
             if ($request->is('api/*')) {

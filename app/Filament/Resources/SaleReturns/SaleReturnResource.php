@@ -94,7 +94,11 @@ class SaleReturnResource extends Resource
 
     public static function getEloquentQuery(): Builder
     {
-        return parent::getEloquentQuery()->with(['sale', 'customer', 'user']);
+        return parent::getEloquentQuery()
+            ->with(['sale', 'customer', 'user'])
+            ->when(! auth()->user()?->can('sales.view_all'), fn ($q) => $q->where(fn ($q) => $q
+                ->where('user_id', auth()->id())
+                ->orWhereHas('sale', fn ($s) => $s->where('user_id', auth()->id()))));
     }
 
     public static function getPages(): array

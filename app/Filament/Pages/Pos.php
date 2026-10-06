@@ -12,11 +12,13 @@ use App\Services\CashRegisterService;
 use App\Services\CustomerService;
 use App\Services\ReceivableService;
 use App\Services\SaleService;
+use App\Support\DbConflict;
 use BackedEnum;
 use Filament\Pages\Page;
 use Filament\Support\Enums\Width;
 use Filament\Support\Icons\Heroicon;
 use Illuminate\Auth\Access\AuthorizationException;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
 use UnitEnum;
@@ -194,6 +196,12 @@ class Pos extends Page
             ];
         } catch (BusinessException|AuthorizationException $e) {
             return ['ok' => false, 'message' => $e->getMessage() ?: 'غير مصرح.'];
+        } catch (QueryException $e) {
+            if (! DbConflict::is($e)) {
+                throw $e;
+            }
+
+            return ['ok' => false, 'message' => DbConflict::MESSAGE];
         }
     }
 

@@ -41,7 +41,7 @@ class InventoryService
     {
         $ids = collect($productIds)->unique()->sort()->values()->all();
 
-        return Product::query()->whereIn('id', $ids)->orderBy('id')->lockForUpdate()->get()->keyBy('id');
+        return Product::query()->withTrashed()->whereIn('id', $ids)->orderBy('id')->lockForUpdate()->get()->keyBy('id');
     }
 
     /**
