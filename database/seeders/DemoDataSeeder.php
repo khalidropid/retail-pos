@@ -158,7 +158,7 @@ class DemoDataSeeder extends Seeder
 
         // Walk-in baskets draw from products not reserved for the scheduled credit sales below.
         $reserved = ['MKP-001', 'MKP-002', 'MKP-003', 'MKP-004', 'SKN-003', 'SKN-004', 'HAR-001', 'HAR-002', 'PRF-001', 'TLS-001',
-            'ACC-001', 'ACC-002', 'ACC-006', 'NAL-001'];
+            'ACC-001', 'ACC-002', 'ACC-006', 'NAL-001', 'HAR-003'];
         $products = Product::query()->where('track_stock', true)->where('stock_quantity', '>', 20)
             ->whereNotIn('sku', $reserved)->with('unit')->get();
 
@@ -199,7 +199,9 @@ class DemoDataSeeder extends Seeder
             // Walk-in sales.
             foreach (range(1, mt_rand(1, 3)) as $n) {
                 $this->at($day, 10 + $n, mt_rand(0, 59));
-                $lines = $products->random(mt_rand(1, 3))->map(fn (Product $p) => [
+                // mt_rand (seeded above) keeps the demo history reproducible.
+                $picks = collect(range(1, mt_rand(1, 3)))->map(fn () => $products[mt_rand(0, $products->count() - 1)])->unique('id');
+                $lines = $picks->map(fn (Product $p) => [
                     'product_id' => $p->id,
                     'quantity' => mt_rand(1, 2),
                 ])->values()->all();
