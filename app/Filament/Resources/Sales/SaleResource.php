@@ -8,14 +8,21 @@ use App\Enums\SaleType;
 use App\Filament\Resources\Sales\Pages\ListSales;
 use App\Filament\Resources\Sales\Pages\ViewSale;
 use App\Filament\Resources\Sales\RelationManagers\PaymentAllocationsRelationManager;
+use App\Filament\Resources\Sales\RelationManagers\ReturnsRelationManager;
 use App\Filament\Support\Domain;
+use App\Models\PaymentMethod;
 use App\Models\Sale;
+use App\Models\SaleItem;
+use App\Services\ReturnService;
 use App\Services\SaleService;
 use App\Support\Money;
 use BackedEnum;
 use Filament\Actions\Action;
 use Filament\Actions\ViewAction;
 use Filament\Forms\Components\DatePicker;
+use Filament\Forms\Components\Hidden;
+use Filament\Forms\Components\Repeater;
+use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
 use Filament\Infolists\Components\RepeatableEntry;
 use Filament\Infolists\Components\TextEntry;
@@ -60,6 +67,46 @@ class SaleResource extends Resource
             ->schema([TextInput::make('reason')->label('سبب الإلغاء')->required()->maxLength(255)])
             ->action(fn (Sale $record, array $data) => Domain::run(
                 fn () => app(SaleService::class)->cancelSale($record, $data['reason'], auth()->user()), 'تم إلغاء الفاتورة'));
+    }
+
+    public static function returnAction(): Action
+    {
+        return Action::make('return')->label('مرتجع')->icon(Heroicon::OutlinedArrowUturnLeft)->color('warning')
+            ->modalWidth('4xl')
+            ->visible(fn (Sale $record) => ! $record->isCancelled()
+                && $record->items->contains(fn (SaleItem $i) => Money::isPositive($i->returnableQuantity()))
+                && auth()->user()->can('returns.create'))
+            ->fillForm(fn (Sale $record) => [
+                'lines' => $record->items->filter(fn (SaleItem $i) => Money::isPositive($i->returnableQuantity()))
+                    ->map(fn (SaleItem $i) => [
+                        'sale_item_id' => $i->id,
+                        'product' => $i->product_name,
+                        'sold' => Money::formatQty($i->quantity),
+                        'returnable' => Money::formatQty($i->returnableQuantity()),
+                        'quantity' => 0,
+                    ])->values()->all(),
+                'refund_method_id' => PaymentMethod::query()->where('code', 'cash')->value('id'),
+            ])
+            ->modalDescription(fn (Sale $record) => Money::isPositive($record->balance_due)
+                ? 'قيمة المرتجع تُخصم أولًا من المتبقي على الفاتورة ('.money($record->balance_due).')، وما يزيد يُرد للعميل.'
+                : 'الفاتورة مدفوعة بالكامل، ستُرد قيمة المرتجع للعميل.')
+            ->schema([
+                Repeater::make('lines')->label('الأصناف')->addable(false)->deletable(false)->reorderable(false)->columns(4)
+                    ->schema([
+                        Hidden::make('sale_item_id'),
+                        TextInput::make('product')->label('المنتج')->disabled()->dehydrated(false),
+                        TextInput::make('sold')->label('المباع')->disabled()->dehydrated(false),
+                        TextInput::make('returnable')->label('المتاح للإرجاع')->disabled()->dehydrated(false),
+                        TextInput::make('quantity')->label('الكمية المرتجعة')->numeric()->minValue(0)->required(),
+                    ]),
+                Select::make('refund_method_id')->label('طريقة رد المبلغ (إن وُجد)')
+                    ->options(fn () => PaymentMethod::query()->active()->pluck('name', 'id')),
+                TextInput::make('reason')->label('سبب الإرجاع')->required()->maxLength(255),
+            ])
+            ->action(fn (Sale $record, array $data) => Domain::run(fn () => app(ReturnService::class)->returnSale(
+                $record, array_values($data['lines'] ?? []), $data['reason'], auth()->user(),
+                $data['refund_method_id'] ? (int) $data['refund_method_id'] : null,
+            ), 'تم تسجيل المرتجع'));
     }
 
     public static function infolist(Schema $schema): Schema
@@ -154,7 +201,7 @@ class SaleResource extends Resource
                     ->when($data['from'] ?? null, fn ($q, $d) => $q->whereDate('sale_date', '>=', $d))
                     ->when($data['until'] ?? null, fn ($q, $d) => $q->whereDate('sale_date', '<=', $d))),
             ])
-            ->recordActions([ViewAction::make(), self::printAction()]);
+            ->recordActions([ViewAction::make(), self::printAction(), self::returnAction()]);
     }
 
     /** Cashiers without sales.view_all only list their own invoices. */
@@ -167,7 +214,7 @@ class SaleResource extends Resource
 
     public static function getRelations(): array
     {
-        return [PaymentAllocationsRelationManager::class];
+        return [PaymentAllocationsRelationManager::class, ReturnsRelationManager::class];
     }
 
     public static function getPages(): array

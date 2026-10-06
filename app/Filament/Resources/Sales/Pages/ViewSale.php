@@ -11,6 +11,6 @@ class ViewSale extends ViewRecord
 
     protected function getHeaderActions(): array
     {
-        return [SaleResource::printAction(), SaleResource::cancelAction()];
+        return [SaleResource::printAction(), SaleResource::returnAction(), SaleResource::cancelAction()];
     }
 }
