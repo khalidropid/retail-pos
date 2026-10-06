@@ -15,6 +15,7 @@ class DatabaseSeeder extends Seeder
             CashSetupSeeder::class,
             UserSeeder::class,
             CatalogSeeder::class,
+            DemoDataSeeder::class,
         ]);
     }
 }

@@ -3,8 +3,7 @@
 namespace Tests\Feature\Ui;
 
 use App\Models\User;
-use Database\Seeders\CatalogSeeder;
-use Database\Seeders\UserSeeder;
+use Database\Seeders\DatabaseSeeder;
 use Filament\Facades\Filament;
 use Livewire\Livewire;
 use Tests\TestCase;
@@ -17,7 +16,7 @@ class PanelPagesRenderTest extends TestCase
 {
     public function test_every_panel_page_renders_for_admin(): void
     {
-        $this->seed([UserSeeder::class, CatalogSeeder::class]);
+        $this->seed(DatabaseSeeder::class);
         $admin = User::query()->where('email', 'admin@pos.test')->firstOrFail();
         $this->actingAs($admin);
 
@@ -54,7 +53,7 @@ class PanelPagesRenderTest extends TestCase
 
     public function test_every_relation_manager_renders_for_admin(): void
     {
-        $this->seed([UserSeeder::class, CatalogSeeder::class]);
+        $this->seed(DatabaseSeeder::class);
         $this->actingAs(User::query()->where('email', 'admin@pos.test')->firstOrFail());
 
         $rendered = 0;
