@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Middleware\BlockWritesDuringRestore;
 use App\Http\Middleware\EnsureUserIsActive;
 use App\Http\Middleware\SecurityHeaders;
 use App\Support\DbConflict;
@@ -20,6 +21,7 @@ return Application::configure(basePath: dirname(__DIR__))
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->redirectGuestsTo(fn () => route('filament.admin.auth.login'));
         $middleware->append(SecurityHeaders::class);
+        $middleware->append(BlockWritesDuringRestore::class);
         $middleware->alias(['active' => EnsureUserIsActive::class]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

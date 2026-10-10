@@ -82,13 +82,15 @@ return [
             'settings.manage' => 'إدارة الإعدادات',
             'payment_methods.manage' => 'إدارة طرق الدفع',
             'audit_logs.view' => 'مشاهدة سجل العمليات',
+            'backups.manage' => 'إنشاء وتنزيل وحذف النسخ الاحتياطية',
+            'backups.restore' => 'استعادة قاعدة البيانات من نسخة احتياطية',
         ],
     ],
 
     'roles' => [
         'admin' => ['label' => 'مدير النظام', 'permissions' => '*'],
         'manager' => ['label' => 'مدير المتجر', 'permissions' => [
-            'except' => ['users.manage', 'roles.manage'],
+            'except' => ['users.manage', 'roles.manage', 'backups.manage', 'backups.restore'],
         ]],
         'cashier' => ['label' => 'كاشير', 'permissions' => [
             'pos.access', 'sales.view', 'sales.create', 'sales.apply_discount', 'sales.credit',

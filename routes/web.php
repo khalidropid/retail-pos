@@ -1,9 +1,13 @@
 <?php
 
+use App\Http\Controllers\BackupDownloadController;
 use App\Http\Controllers\PrintController;
 use Illuminate\Support\Facades\Route;
 
 Route::redirect('/', '/admin');
+
+Route::middleware(['auth', 'throttle:20,1'])->get('backups/{backup}/download', BackupDownloadController::class)
+    ->name('backups.download');
 
 Route::middleware(['auth', 'throttle:60,1'])->prefix('print')->name('print.')->group(function () {
     Route::get('sales/{sale}/receipt', [PrintController::class, 'saleReceipt'])->name('sale-receipt');

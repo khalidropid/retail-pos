@@ -68,6 +68,13 @@ class AuditLog extends Model
             'user_changed' => 'تعديل مستخدم',
             'permissions_changed' => 'تغيير صلاحيات',
             'settings_changed' => 'تغيير الإعدادات',
+            'backup_created' => 'إنشاء نسخة احتياطية',
+            'backup_failed' => 'فشل نسخة احتياطية',
+            'backup_deleted' => 'حذف نسخة احتياطية',
+            'backup_downloaded' => 'تنزيل نسخة احتياطية',
+            'backup_uploaded' => 'رفع نسخة احتياطية',
+            'database_restored' => 'استعادة قاعدة البيانات',
+            'database_restore_failed' => 'فشل استعادة قاعدة البيانات',
         ];
     }
 

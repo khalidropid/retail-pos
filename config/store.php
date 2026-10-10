@@ -66,6 +66,12 @@ return [
             'barcode.show_sku' => true,
             'barcode.show_store_name' => false,
         ],
+        'backup' => [
+            'backup.schedule_enabled' => false,
+            'backup.schedule_time' => '02:00',
+            'backup.retention_days' => 14,
+            'backup.include_files' => true,
+        ],
         'numbering' => [
             'numbering.sale' => 'INV-',
             'numbering.purchase' => 'PO-',

@@ -122,6 +122,25 @@ class Settings extends Page
                     TextInput::make($f('credit.default_limit'))->label('الحد الائتماني الافتراضي للعملاء الجدد')
                         ->numeric()->minValue(0)->required(),
                 ]),
+                Tab::make('الباركود')->icon(Heroicon::OutlinedQrCode)->columns(2)->schema([
+                    TextInput::make($f('barcode.prefix'))->label('بادئة الباركود الداخلي (رقمان)')->required()
+                        ->regex('/^\d{2}$/')->helperText('يُفضّل 20-29 (نطاق GS1 للاستخدام الداخلي في المتجر)'),
+                    Select::make($f('barcode.label_size'))->label('مقاس الملصق الافتراضي')->required()
+                        ->options(collect(config('barcode.label_sizes'))->map(fn ($s) => $s['label'])),
+                    Toggle::make($f('barcode.show_price'))->label('إظهار السعر على الملصق'),
+                    Toggle::make($f('barcode.show_sku'))->label('إظهار رمز SKU على الملصق'),
+                    Toggle::make($f('barcode.show_store_name'))->label('إظهار اسم المتجر على الملصق'),
+                ]),
+                Tab::make('النسخ الاحتياطي')->icon(Heroicon::OutlinedCircleStack)->columns(2)
+                    ->visible(fn () => auth()->user()?->can('backups.manage'))->schema([
+                        Toggle::make($f('backup.schedule_enabled'))->label('تفعيل النسخ الاحتياطي اليومي التلقائي')
+                            ->helperText('يتطلب تشغيل مجدول النظام على الخادم (راجع دليل التشغيل).'),
+                        TextInput::make($f('backup.schedule_time'))->label('وقت النسخ اليومي')->required()
+                            ->regex('/^([01]\d|2[0-3]):[0-5]\d$/')->placeholder('02:00'),
+                        TextInput::make($f('backup.retention_days'))->label('مدة الاحتفاظ بالنسخ التلقائية (يوم)')
+                            ->integer()->minValue(1)->maxValue(3650)->required(),
+                        Toggle::make($f('backup.include_files'))->label('تضمين صور المنتجات والشعار في النسخة'),
+                    ]),
                 Tab::make('الترقيم')->icon(Heroicon::OutlinedHashtag)->columns(3)->schema([
                     TextInput::make($f('numbering.sale'))->label('بادئة فواتير البيع')->required()->maxLength(10),
                     TextInput::make($f('numbering.purchase'))->label('بادئة أوامر الشراء')->required()->maxLength(10),
