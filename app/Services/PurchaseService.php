@@ -251,6 +251,7 @@ class PurchaseService
                     $purchase->id,
                     $payment['reference'] ?? null,
                     'دفعة عند الاستلام '.$receipt->number,
+                    $payment['account_type_id'] ?? null,
                 );
             }
 

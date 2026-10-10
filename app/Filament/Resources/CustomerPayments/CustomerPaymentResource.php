@@ -7,9 +7,9 @@ use App\Filament\Resources\CustomerPayments\Pages\CreateCustomerPayment;
 use App\Filament\Resources\CustomerPayments\Pages\ListCustomerPayments;
 use App\Filament\Resources\CustomerPayments\Pages\ViewCustomerPayment;
 use App\Filament\Support\Domain;
+use App\Filament\Support\PaymentFields;
 use App\Models\Customer;
 use App\Models\CustomerPayment;
-use App\Models\PaymentMethod;
 use App\Models\Sale;
 use App\Services\CustomerPaymentService;
 use App\Support\Money;
@@ -85,10 +85,7 @@ class CustomerPaymentResource extends Resource
                     ->afterStateUpdated(fn ($state, Set $set) => $set('allocations', self::openInvoiceRows($state ? (int) $state : null))),
                 TextInput::make('amount')->label('المبلغ')->numeric()->minValue(0.01)->required()
                     ->helperText(fn (Get $get) => ($c = Customer::query()->find($get('customer_id'))) ? 'إجمالي الدين: '.money($c->balance) : null),
-                Select::make('payment_method_id')->label('طريقة الدفع')->required()
-                    ->options(fn () => PaymentMethod::query()->active()->pluck('name', 'id'))
-                    ->default(fn () => PaymentMethod::query()->where('code', 'cash')->value('id')),
-                TextInput::make('reference')->label('المرجع (رقم حوالة/إيصال بنك)')->maxLength(100),
+                ...PaymentFields::make(),
                 Textarea::make('notes')->label('ملاحظات')->rows(1)->columnSpan(2),
             ]),
             Section::make('توزيع الدفعة على الفواتير')->schema([
@@ -113,6 +110,17 @@ class CustomerPaymentResource extends Resource
             ->url(fn (CustomerPayment $record) => route('print.payment-receipt', $record))->openUrlInNewTab();
     }
 
+    public static function verifyAction(): Action
+    {
+        return Action::make('verify')->label('تأكيد وصول التحويل')->icon(Heroicon::OutlinedCheckBadge)->color('success')
+            ->visible(fn (CustomerPayment $record) => $record->verification_status === CustomerPayment::VERIFICATION_PENDING
+                && ! $record->isVoided() && auth()->user()->can('customer_payments.verify'))
+            ->modalDescription(fn (CustomerPayment $record) => 'تأكد من وصول المبلغ إلى الحساب البنكي بالمرجع: '.$record->reference)
+            ->schema([TextInput::make('notes')->label('ملاحظة (اختياري)')->maxLength(255)])
+            ->action(fn (CustomerPayment $record, array $data) => Domain::run(
+                fn () => app(CustomerPaymentService::class)->verifyPayment($record, auth()->user(), $data['notes'] ?? null), 'تم تأكيد التحويل'));
+    }
+
     public static function reverseAction(): Action
     {
         return Action::make('reverse')->label('عكس الدفعة')->icon(Heroicon::OutlinedArrowUturnLeft)->color('danger')
@@ -131,7 +139,13 @@ class CustomerPaymentResource extends Resource
                 TextEntry::make('payment_date')->label('التاريخ')->dateTime('Y-m-d H:i'),
                 TextEntry::make('customer.name')->label('العميل')->placeholder('عميل نقدي'),
                 TextEntry::make('amount')->label('المبلغ')->formatStateUsing(fn ($state) => money($state))->weight('bold'),
-                TextEntry::make('paymentMethod.name')->label('طريقة الدفع'),
+                TextEntry::make('method_label')->label('طريقة الدفع')->state(fn (CustomerPayment $record) => $record->methodLabel()),
+                TextEntry::make('verification')->label('حالة التحويل')->badge()
+                    ->state(fn (CustomerPayment $record) => $record->verificationLabel())
+                    ->color(fn (CustomerPayment $record) => $record->verification_status === 'verified' ? 'success' : 'warning')
+                    ->visible(fn (CustomerPayment $record) => $record->verification_status !== null),
+                TextEntry::make('verifier.name')->label('أكّده')->placeholder('-')
+                    ->visible(fn (CustomerPayment $record) => $record->verification_status === 'verified'),
                 TextEntry::make('source')->label('المصدر')->formatStateUsing(fn ($state) => $state === 'pos' ? 'عند البيع' : 'سداد دين'),
                 TextEntry::make('balance_before')->label('الرصيد قبل الدفع')->formatStateUsing(fn ($state) => money($state))->placeholder('-'),
                 TextEntry::make('balance_after')->label('الرصيد بعد الدفع')->formatStateUsing(fn ($state) => money($state))->placeholder('-'),
@@ -166,11 +180,14 @@ class CustomerPaymentResource extends Resource
                 TextColumn::make('payment_date')->label('التاريخ')->dateTime('Y-m-d H:i')->sortable(),
                 TextColumn::make('customer.name')->label('العميل')->placeholder('نقدي')->searchable(),
                 TextColumn::make('amount')->label('المبلغ')->formatStateUsing(fn ($state) => money($state))->sortable(),
-                TextColumn::make('paymentMethod.name')->label('طريقة الدفع'),
+                TextColumn::make('method_label')->label('طريقة الدفع')->state(fn (CustomerPayment $record) => $record->methodLabel()),
+                TextColumn::make('verification')->label('التحويل')->badge()->placeholder('-')
+                    ->state(fn (CustomerPayment $record) => $record->verificationLabel())
+                    ->color(fn (CustomerPayment $record) => $record->verification_status === 'verified' ? 'success' : 'warning'),
                 TextColumn::make('invoices')->label('الفواتير المسددة')->wrap()
                     ->state(fn (CustomerPayment $record) => $record->allocations->map(fn ($a) => $a->sale->number)->implode('، ')),
                 TextColumn::make('user.name')->label('المستخدم'),
-                TextColumn::make('reference')->label('المرجع')->placeholder('-')->toggleable(),
+                TextColumn::make('reference')->label('المرجع')->placeholder('-')->searchable()->copyable()->toggleable(),
                 TextColumn::make('notes')->label('ملاحظات')->limit(30)->placeholder('-')->toggleable(isToggledHiddenByDefault: true),
                 TextColumn::make('source')->label('المصدر')->badge()
                     ->formatStateUsing(fn ($state) => $state === 'pos' ? 'عند البيع' : 'سداد دين')->toggleable(),
@@ -181,6 +198,9 @@ class CustomerPaymentResource extends Resource
                 SelectFilter::make('status')->label('الحالة')->options(RecordStatus::class),
                 SelectFilter::make('customer_id')->label('العميل')->relationship('customer', 'name')->searchable(),
                 SelectFilter::make('payment_method_id')->label('طريقة الدفع')->relationship('paymentMethod', 'name'),
+                SelectFilter::make('payment_account_type_id')->label('نوع الحساب')->relationship('accountType', 'name'),
+                SelectFilter::make('verification_status')->label('حالة التحويل')
+                    ->options([CustomerPayment::VERIFICATION_PENDING => 'بانتظار التأكيد', CustomerPayment::VERIFICATION_VERIFIED => 'مؤكد']),
                 Filter::make('date')->schema([
                     DatePicker::make('from')->label('من تاريخ'),
                     DatePicker::make('until')->label('إلى تاريخ'),
@@ -188,7 +208,7 @@ class CustomerPaymentResource extends Resource
                     ->when($data['from'] ?? null, fn ($q, $d) => $q->whereDate('payment_date', '>=', $d))
                     ->when($data['until'] ?? null, fn ($q, $d) => $q->whereDate('payment_date', '<=', $d))),
             ])
-            ->recordActions([ViewAction::make(), self::printAction(), self::reverseAction()]);
+            ->recordActions([ViewAction::make(), self::printAction(), self::verifyAction(), self::reverseAction()]);
     }
 
     /** Without customers.view_debts users only see payments they recorded. */

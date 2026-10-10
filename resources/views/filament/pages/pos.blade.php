@@ -12,9 +12,10 @@
                 cart: [],
                 invoiceDiscount: 0,
                 saleType: 'cash',
-                paymentMethodId: (config.paymentMethods.find(m => m.isCash) || config.paymentMethods[0] || {}).id,
+                // Payment lines. In a paid sale a single line always covers the
+                // total; splitting adds lines. In a credit sale lines are down payments.
+                payments: [],
                 tendered: '',
-                downPayment: 0,
                 dueDate: '',
                 overrideCredit: false,
                 notes: '',
@@ -27,6 +28,7 @@
                 lastSale: null,
 
                 init() {
+                    this.selectMethod(this.defaultMethodId());
                     this.loadProducts();
                     this.$nextTick(() => this.$refs.scan?.focus());
                     window.addEventListener('keydown', (e) => {
@@ -63,13 +65,48 @@
                     return { discount: this.round(this.lineDiscounts + inv), tax: this.round(tax), total: this.round(total) };
                 },
                 get itemsCount() { return this.cart.reduce((s, l) => s + Number(l.quantity), 0); },
-                get change() { return this.tendered === '' ? 0 : this.round(Number(this.tendered) - this.totals.total); },
-                get creditAmount() { return this.round(this.totals.total - Number(this.downPayment || 0)); },
+                defaultMethodId() { return (this.config.paymentMethods.find(m => m.isCash) || this.config.paymentMethods[0] || {}).id; },
+                methodOf(line) { return this.config.paymentMethods.find(m => m.id == line.methodId) || {}; },
+                accountTypeOf(line) { return this.config.accountTypes.find(t => t.id == line.accountTypeId) || {}; },
+                needsReference(line) { return !!(this.methodOf(line).requiresReference || this.accountTypeOf(line).requiresReference); },
+                /** Lines as they will be sent: a single paid line always equals the total. */
+                get effectivePayments() {
+                    if (this.saleType === 'cash' && this.payments.length === 1) {
+                        return [{ ...this.payments[0], amount: this.totals.total }];
+                    }
+                    return this.payments.filter(p => Number(p.amount) > 0);
+                },
+                get paidTotal() { return this.round(this.effectivePayments.reduce((s, p) => s + Number(p.amount || 0), 0)); },
+                get remainingToPay() { return this.round(this.totals.total - this.paidTotal); },
+                get cashPortion() { return this.round(this.effectivePayments.filter(p => this.methodOf(p).isCash).reduce((s, p) => s + Number(p.amount || 0), 0)); },
+                get change() { return this.tendered === '' ? 0 : this.round(Number(this.tendered) - this.cashPortion); },
+                get creditAmount() { return this.round(this.totals.total - this.paidTotal); },
+                selectMethod(id) {
+                    this.saleType = 'cash';
+                    this.payments = [{ methodId: id, amount: this.totals.total, accountTypeId: null, reference: '' }];
+                    this.tendered = '';
+                },
+                addPaymentLine() {
+                    if (this.saleType === 'cash' && this.payments.length === 1) this.payments[0].amount = this.totals.total;
+                    const remaining = Math.max(this.round(this.totals.total - this.payments.reduce((s, p) => s + Number(p.amount || 0), 0)), 0);
+                    this.payments.push({ methodId: this.defaultMethodId(), amount: remaining, accountTypeId: null, reference: '' });
+                },
+                removePaymentLine(i) { this.payments.splice(i, 1); if (this.saleType === 'cash' && !this.payments.length) this.selectMethod(this.defaultMethodId()); },
+                paymentProblem() {
+                    for (const p of this.effectivePayments) {
+                        const m = this.methodOf(p);
+                        if (m.requiresAccountType && !p.accountTypeId) return 'اختر نوع الحساب لدفعة "' + m.name + '".';
+                        if (this.needsReference(p) && !(p.reference || '').trim()) return 'أدخل رقم المرجع لدفعة "' + m.name + '".';
+                    }
+                    if (this.saleType === 'cash' && Math.abs(this.remainingToPay) > 0.001) return 'مجموع المدفوعات لا يساوي الإجمالي. المتبقي: ' + this.money(this.remainingToPay);
+                    if (this.paidTotal > this.totals.total + 0.001) return 'مجموع المدفوعات أكبر من الإجمالي.';
+                    return null;
+                },
                 get exceedsCredit() {
                     if (this.saleType !== 'credit' || !this.customer || this.customer.creditLimit === null) return false;
                     return this.customer.balance + this.creditAmount > this.customer.creditLimit;
                 },
-                get selectedMethod() { return this.config.paymentMethods.find(m => m.id == this.paymentMethodId); },
+
 
                 // ---------- products
                 async loadProducts() {
@@ -107,7 +144,8 @@
                 },
                 priceChanged(l) { l.priceEdited = Number(l.price) !== Number(l.listPrice); },
                 clearCart() {
-                    this.cart = []; this.invoiceDiscount = 0; this.tendered = ''; this.downPayment = 0;
+                    this.cart = []; this.invoiceDiscount = 0; this.tendered = ''; this.payments = [];
+                    this.selectMethod(this.defaultMethodId());
                     this.customer = null; this.saleType = 'cash'; this.overrideCredit = false; this.notes = ''; this.error = '';
                 },
 
@@ -125,7 +163,8 @@
                 },
                 setType(t) {
                     this.saleType = t;
-                    if (t === 'credit') { this.downPayment = 0; this.tendered = ''; if (this.customer) this.dueDate = this.customer.dueDate; }
+                    if (t === 'credit') { this.payments = []; this.tendered = ''; if (this.customer) this.dueDate = this.customer.dueDate; }
+                    else if (!this.payments.length) { this.selectMethod(this.defaultMethodId()); }
                 },
 
                 // ---------- checkout
@@ -136,7 +175,9 @@
                     if (!this.cart.length) return this.flash('السلة فارغة.');
                     if (this.config.requireRegister && !this.config.register) return this.flash('يجب فتح صندوق قبل البيع.');
                     if (this.saleType === 'credit' && !this.customer) return this.flash('يجب اختيار العميل في البيع الآجل.');
-                    if (this.saleType === 'cash' && this.selectedMethod?.isCash && this.tendered !== '' && this.change < 0) return this.flash('المبلغ المستلم أقل من الإجمالي.');
+                    const problem = this.paymentProblem();
+                    if (problem) return this.flash(problem);
+                    if (this.tendered !== '' && this.cashPortion > 0 && this.change < 0) return this.flash('المبلغ المستلم أقل من الجزء النقدي.');
 
                     this.busy = true;
                     try {
@@ -144,9 +185,8 @@
                             items: this.cart.map(l => ({ id: l.id, quantity: l.quantity, price: l.price, priceEdited: l.priceEdited, discount: l.discount || 0 })),
                             saleType: this.saleType,
                             customerId: this.customer?.id ?? null,
-                            paymentMethodId: this.paymentMethodId,
-                            tendered: this.saleType === 'cash' && this.selectedMethod?.isCash ? this.tendered : null,
-                            downPayment: this.downPayment || 0,
+                            payments: this.effectivePayments,
+                            tendered: this.cashPortion > 0 ? this.tendered : null,
                             invoiceDiscount: this.invoiceDiscount || 0,
                             dueDate: this.saleType === 'credit' ? this.dueDate : null,
                             overrideCredit: this.overrideCredit,
@@ -317,9 +357,9 @@
 
                 {{-- Payment type --}}
                 <div class="grid grid-cols-4 gap-2">
-                    <template x-for="m in config.paymentMethods.filter(m => ['cash','card','bank_transfer'].includes(m.code))" :key="m.id">
-                        <button type="button" @click="setType('cash'); paymentMethodId = m.id"
-                                :class="saleType === 'cash' && paymentMethodId == m.id ? 'bg-primary-600 text-white border-primary-600' : 'bg-white dark:bg-gray-800 dark:text-gray-200'"
+                    <template x-for="m in config.paymentMethods" :key="m.id">
+                        <button type="button" @click="selectMethod(m.id)"
+                                :class="saleType === 'cash' && payments.length === 1 && payments[0].methodId == m.id ? 'bg-primary-600 text-white border-primary-600' : 'bg-white dark:bg-gray-800 dark:text-gray-200'"
                                 class="rounded-lg border border-gray-300 py-2 text-sm font-semibold dark:border-gray-700" x-text="m.name"></button>
                     </template>
                     <button type="button" x-show="config.can.credit" @click="setType('credit')"
@@ -327,26 +367,9 @@
                             class="rounded-lg border border-gray-300 py-2 text-sm font-semibold dark:border-gray-700">آجل</button>
                 </div>
 
-                <template x-if="saleType === 'cash' && selectedMethod?.isCash">
-                    <div class="flex items-center justify-between gap-2 text-sm">
-                        <label>المبلغ المستلم</label>
-                        <input type="number" min="0" step="any" x-model="tendered" placeholder="اختياري"
-                               class="w-32 rounded-lg border border-gray-300 p-1 dark:border-gray-700 dark:bg-gray-800 dark:text-white">
-                        <span>الباقي: <b :class="change < 0 ? 'text-danger-600' : 'text-success-600'" x-text="money(change)"></b></span>
-                    </div>
-                </template>
-
                 <template x-if="saleType === 'credit'">
                     <div class="space-y-2 rounded-lg border border-warning-300 bg-warning-50 p-2 text-sm dark:border-warning-700 dark:bg-warning-950">
                         <div x-show="!customer" class="font-semibold text-danger-600">اختر العميل للبيع الآجل</div>
-                        <div class="flex items-center justify-between gap-2">
-                            <label>دفعة مقدمة</label>
-                            <input type="number" min="0" step="any" x-model.number="downPayment"
-                                   class="w-28 rounded-lg border border-gray-300 p-1 dark:border-gray-700 dark:bg-gray-800 dark:text-white">
-                            <select x-model="paymentMethodId" x-show="downPayment > 0" class="rounded-lg border border-gray-300 p-1 dark:border-gray-700 dark:bg-gray-800 dark:text-white">
-                                <template x-for="m in config.paymentMethods" :key="m.id"><option :value="m.id" x-text="m.name"></option></template>
-                            </select>
-                        </div>
                         <div class="flex items-center justify-between gap-2">
                             <label>تاريخ الاستحقاق</label>
                             <input type="date" x-model="dueDate" class="rounded-lg border border-gray-300 p-1 dark:border-gray-700 dark:bg-gray-800 dark:text-white">
@@ -358,6 +381,53 @@
                                 <input type="checkbox" x-model="overrideCredit"> تجاوز الحد الائتماني (صلاحية مدير)
                             </label>
                         </div>
+                    </div>
+                </template>
+
+                {{-- Payment lines (split payments / down payments) --}}
+                <div class="space-y-2">
+                    <template x-for="(line, i) in payments" :key="i">
+                        <div class="space-y-1 rounded-lg border border-gray-200 p-2 text-sm dark:border-gray-700">
+                            <div class="flex items-center gap-2">
+                                <select x-model.number="line.methodId" @change="line.accountTypeId = null"
+                                        class="flex-1 rounded-lg border border-gray-300 p-1 dark:border-gray-700 dark:bg-gray-800 dark:text-white">
+                                    <template x-for="m in config.paymentMethods" :key="m.id"><option :value="m.id" x-text="m.name" :selected="m.id == line.methodId"></option></template>
+                                </select>
+                                {{-- A single paid line always equals the total, so no amount box. --}}
+                                <input type="number" min="0" step="any" x-model.number="line.amount"
+                                       x-show="!(saleType === 'cash' && payments.length === 1)" placeholder="المبلغ"
+                                       class="w-28 rounded-lg border border-gray-300 p-1 dark:border-gray-700 dark:bg-gray-800 dark:text-white">
+                                <button type="button" x-show="payments.length > 1 || saleType === 'credit'" @click="removePaymentLine(i)" class="text-danger-600">✕</button>
+                            </div>
+                            <template x-if="methodOf(line).requiresAccountType">
+                                <select x-model.number="line.accountTypeId" required
+                                        class="w-full rounded-lg border border-gray-300 p-1 dark:border-gray-700 dark:bg-gray-800 dark:text-white">
+                                    <option value="">نوع الحساب — اختر المحفظة *</option>
+                                    <template x-for="t in config.accountTypes" :key="t.id"><option :value="t.id" x-text="t.name"></option></template>
+                                </select>
+                            </template>
+                            <template x-if="needsReference(line)">
+                                <input type="text" x-model="line.reference" maxlength="100" placeholder="رقم المرجع *"
+                                       class="w-full rounded-lg border border-gray-300 p-1 dark:border-gray-700 dark:bg-gray-800 dark:text-white">
+                            </template>
+                            <div x-show="methodOf(line).requiresVerification" class="text-xs text-gray-500">تُسجّل الدفعة "بانتظار التأكيد" حتى يُتحقق من وصول التحويل.</div>
+                        </div>
+                    </template>
+                    <div class="flex items-center justify-between text-sm">
+                        <button type="button" @click="addPaymentLine()" class="text-primary-600 underline"
+                                x-text="saleType === 'credit' ? '+ إضافة دفعة مقدمة' : '+ تقسيم الدفع على أكثر من طريقة'"></button>
+                        <span x-show="saleType === 'cash' && payments.length > 1"
+                              :class="Math.abs(remainingToPay) > 0.001 ? 'text-danger-600 font-semibold' : 'text-success-600'"
+                              x-text="'المتبقي: ' + money(remainingToPay)"></span>
+                    </div>
+                </div>
+
+                <template x-if="cashPortion > 0">
+                    <div class="flex items-center justify-between gap-2 text-sm">
+                        <label>المبلغ المستلم نقدًا</label>
+                        <input type="number" min="0" step="any" x-model="tendered" placeholder="اختياري"
+                               class="w-32 rounded-lg border border-gray-300 p-1 dark:border-gray-700 dark:bg-gray-800 dark:text-white">
+                        <span>الباقي: <b :class="change < 0 ? 'text-danger-600' : 'text-success-600'" x-text="money(change)"></b></span>
                     </div>
                 </template>
 

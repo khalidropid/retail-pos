@@ -13,10 +13,11 @@ use App\Enums\StockMovementType;
 use App\Exceptions\BusinessException;
 use App\Models\Customer;
 use App\Models\CustomerPayment;
-use App\Models\PaymentMethod;
 use App\Models\Product;
 use App\Models\Sale;
 use App\Models\User;
+use App\Services\Payments\PaymentDetails;
+use App\Services\Payments\PaymentDetailsResolver;
 use App\Services\Sales\SaleCalculator;
 use App\Support\Money;
 use Brick\Math\RoundingMode;
@@ -34,6 +35,7 @@ class SaleService
         private ReceivableService $receivables,
         private CashRegisterService $registers,
         private AuditLogger $audit,
+        private PaymentDetailsResolver $paymentDetails,
     ) {}
 
     /**
@@ -147,24 +149,18 @@ class SaleService
 
             $total = $calc['total'];
 
-            // 2) Payment / credit rules.
+            // 2) Payments (one or more components) and credit rules.
+            $components = $this->paymentComponents($data, $type, $total);
+            $paid = array_reduce($components, fn ($c, $p) => Money::add($c, $p['amount']), '0');
 
-            $method = null;
-            $paid = Money::round($data['paid_amount'] ?? ($type === SaleType::Cash ? $total : 0));
-            if (Money::isNegative($paid)) {
-                throw new BusinessException('المبلغ المدفوع لا يمكن أن يكون سالبًا.');
-            }
             if (Money::gt($paid, $total)) {
-                throw new BusinessException('المبلغ المدفوع أكبر من إجمالي الفاتورة. استخدم "المبلغ المستلم" لحساب الباقي.');
+                throw new BusinessException('مجموع المدفوعات ('.money($paid).') أكبر من إجمالي الفاتورة ('.money($total).'). استخدم "المبلغ المستلم" لحساب الباقي النقدي.');
             }
-
-            if (Money::isPositive($paid)) {
-                $method = PaymentMethod::query()->where('is_active', true)->find($data['payment_method_id'] ?? null)
-                    ?? throw new BusinessException('اختر طريقة الدفع.');
-                if ($method->isCash() && ! $session) {
-                    throw new BusinessException('يجب فتح صندوق لاستلام النقد.');
-                }
+            $cashPortion = array_reduce($components, fn ($c, $p) => $p['details']->isCash() ? Money::add($c, $p['amount']) : $c, '0');
+            if (Money::isPositive($cashPortion) && ! $session) {
+                throw new BusinessException('يجب فتح صندوق لاستلام النقد.');
             }
+            $method = count($components) === 1 ? $components[0]['details']->method : null;
 
             $dueDate = null;
             $overridden = false;
@@ -172,7 +168,7 @@ class SaleService
 
             if ($type === SaleType::Cash) {
                 if (! Money::eq($paid, $total)) {
-                    throw new BusinessException('في البيع النقدي يجب دفع كامل المبلغ ('.money($total).'). للبيع بالدين اختر "آجل".');
+                    throw new BusinessException('في البيع المدفوع يجب أن يغطي مجموع المدفوعات كامل المبلغ ('.money($total).'). المتبقي: '.money(Money::sub($total, $paid)).'. للبيع بالدين اختر "آجل".');
                 }
             } else {
                 if (! $customer) {
@@ -191,14 +187,15 @@ class SaleService
                 }
             }
 
+            // Tendered cash only applies to the cash portion of the payment.
             $tendered = null;
             $change = null;
-            if ($method?->isCash() && filled($data['amount_tendered'] ?? null)) {
+            if (filled($data['amount_tendered'] ?? null) && Money::isPositive($cashPortion)) {
                 $tendered = Money::round($data['amount_tendered']);
-                if (Money::lt($tendered, $paid)) {
-                    throw new BusinessException('المبلغ المستلم ('.money($tendered).') أقل من المطلوب ('.money($paid).').');
+                if (Money::lt($tendered, $cashPortion)) {
+                    throw new BusinessException('المبلغ المستلم ('.money($tendered).') أقل من الجزء النقدي المطلوب ('.money($cashPortion).').');
                 }
-                $change = Money::sub($tendered, $paid);
+                $change = Money::sub($tendered, $cashPortion);
             }
 
             // 3) Sale + items + stock.
@@ -251,8 +248,8 @@ class SaleService
                     "فاتورة بيع {$sale->number}", $cashier, $sale);
             }
 
-            if (Money::isPositive($paid)) {
-                $this->payments->recordPosPayment($sale, $method, $paid, $cashier, $session);
+            foreach ($components as $component) {
+                $this->payments->recordPosPayment($sale, $component['details'], $component['amount'], $cashier, $session);
             }
 
             $sale->refresh();
@@ -269,6 +266,55 @@ class SaleService
 
             return $sale->load('items');
         });
+    }
+
+    /**
+     * Normalize the payment input into validated components.
+     *
+     * Accepts either `payments` => [[payment_method_id, amount, account_type_id?, reference?], ...]
+     * (split payments) or the single-payment shorthand payment_method_id /
+     * paid_amount / account_type_id / payment_reference.
+     *
+     * @return array<int, array{details: PaymentDetails, amount: string}>
+     */
+    private function paymentComponents(array $data, SaleType $type, string $total): array
+    {
+        $rows = $data['payments'] ?? null;
+
+        if ($rows === null) {
+            $paid = Money::round($data['paid_amount'] ?? ($type === SaleType::Cash ? $total : 0));
+            $rows = Money::isZero($paid) ? [] : [[
+                'payment_method_id' => $data['payment_method_id'] ?? null,
+                'amount' => $paid,
+                'account_type_id' => $data['account_type_id'] ?? null,
+                'reference' => $data['payment_reference'] ?? null,
+            ]];
+        }
+
+        if (count($rows) > 10) {
+            throw new BusinessException('عدد طرق الدفع في الفاتورة الواحدة كبير جدًا.');
+        }
+
+        $components = [];
+        foreach (array_values($rows) as $row) {
+            $amount = Money::round($row['amount'] ?? 0);
+            if (Money::isNegative($amount)) {
+                throw new BusinessException('المبلغ المدفوع لا يمكن أن يكون سالبًا.');
+            }
+            if (Money::isZero($amount)) {
+                continue;
+            }
+            if (empty($row['payment_method_id'])) {
+                throw new BusinessException('اختر طريقة الدفع.');
+            }
+
+            $components[] = [
+                'details' => $this->paymentDetails->resolve((int) $row['payment_method_id'], $row['account_type_id'] ?? null, $row['reference'] ?? null, atPos: true),
+                'amount' => $amount,
+            ];
+        }
+
+        return $components;
     }
 
     /**

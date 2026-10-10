@@ -12,8 +12,9 @@
         <tr><td>رقم الإيصال:</td><td class="bold">{{ $payment->number }}</td></tr>
         <tr><td>التاريخ:</td><td><span class="ltr">{{ $payment->payment_date->format('Y-m-d H:i') }}</span></td></tr>
         <tr><td>العميل:</td><td class="bold">{{ $payment->customer?->name ?? 'عميل نقدي' }}</td></tr>
-        <tr><td>طريقة الدفع:</td><td>{{ $payment->paymentMethod->name }}</td></tr>
-        @if ($payment->reference)<tr><td>المرجع:</td><td>{{ $payment->reference }}</td></tr>@endif
+        <tr><td>طريقة الدفع:</td><td>{{ $payment->methodLabel() }}</td></tr>
+        @if ($payment->reference)<tr><td>رقم المرجع:</td><td><span class="ltr">{{ $payment->reference }}</span></td></tr>@endif
+        @if ($payment->verificationLabel())<tr><td>حالة التحويل:</td><td>{{ $payment->verificationLabel() }}</td></tr>@endif
     </table>
     <hr>
     @if ($payment->allocations->isNotEmpty())

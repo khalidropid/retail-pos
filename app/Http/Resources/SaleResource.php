@@ -38,6 +38,14 @@ class SaleResource extends JsonResource
                 'tax_amount' => $i->tax_amount,
                 'line_total' => $i->line_total,
             ])),
+            'payments' => $this->whenLoaded('allocations', fn () => $this->allocations->map(fn ($a) => [
+                'number' => $a->payment->number,
+                'method' => $a->payment->methodLabel(),
+                'reference' => $a->payment->reference,
+                'amount' => $a->amount,
+                'status' => $a->payment->status->value,
+                'verification_status' => $a->payment->verification_status,
+            ])),
             'receipt_url' => route('print.sale-receipt', $this->resource),
         ];
     }

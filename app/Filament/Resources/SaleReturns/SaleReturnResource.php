@@ -46,7 +46,11 @@ class SaleReturnResource extends Resource
                 TextEntry::make('total')->label('قيمة المرتجع')->formatStateUsing(fn ($state) => money($state))->weight('bold'),
                 TextEntry::make('debt_reduction')->label('خُصم من الدين')->formatStateUsing(fn ($state) => money($state)),
                 TextEntry::make('refund_amount')->label('رُدّ للعميل')->formatStateUsing(fn ($state) => money($state)),
-                TextEntry::make('refundMethod.name')->label('طريقة الرد')->placeholder('-'),
+                TextEntry::make('refund_method')->label('طريقة الرد')->placeholder('-')
+                    ->state(fn (SaleReturn $record) => $record->refund_payment_method_name
+                        ? $record->refund_payment_method_name.($record->refund_account_type_name ? ' - '.$record->refund_account_type_name : '')
+                        : $record->refundMethod?->name),
+                TextEntry::make('refund_reference')->label('مرجع الرد')->placeholder('-'),
                 TextEntry::make('user.name')->label('المستخدم'),
                 TextEntry::make('reason')->label('السبب')->columnSpan(3),
             ]),

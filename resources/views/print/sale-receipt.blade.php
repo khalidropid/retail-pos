@@ -9,7 +9,7 @@
         <tr><td>التاريخ:</td><td><span class="ltr">{{ $sale->sale_date->format('Y-m-d H:i') }}</span></td></tr>
         <tr><td>الكاشير:</td><td>{{ $sale->user->name }}</td></tr>
         <tr><td>العميل:</td><td>{{ $sale->customer?->name ?? 'عميل نقدي' }}</td></tr>
-        <tr><td>نوع الدفع:</td><td>@if ($sale->sale_type === \App\Enums\SaleType::Credit)آجل{{ $sale->paymentMethod ? ' (دفعة مقدمة: '.$sale->paymentMethod->name.')' : '' }}@else{{ $sale->paymentMethod?->name ?? '-' }}@endif</td></tr>
+        <tr><td>نوع الدفع:</td><td>@if ($sale->sale_type === \App\Enums\SaleType::Credit)آجل@elseif ($sale->allocations->count() > 1)دفع متعدد@else{{ $sale->allocations->first()?->payment->methodLabel() ?? '-' }}@endif</td></tr>
         @if ($sale->isCancelled())
             <tr><td colspan="2" class="center big">*** فاتورة ملغاة ***</td></tr>
         @endif
@@ -38,6 +38,12 @@
         @if ($sale->tax_amount > 0)<tr><td>{{ settings('tax.label', 'الضريبة') }}{{ settings('tax.prices_include_tax') ? ' (ضمن السعر)' : '' }}</td><td class="num">{{ money($sale->tax_amount) }}</td></tr>@endif
         <tr class="big"><td>الإجمالي</td><td class="num">{{ money($sale->total) }}</td></tr>
         <tr><td>المدفوع</td><td class="num">{{ money($sale->paid_amount) }}</td></tr>
+        @foreach ($sale->allocations as $allocation)
+            @if ($allocation->payment->status->value === 'active')
+                <tr class="muted"><td>&nbsp;&nbsp;{{ $allocation->payment->methodLabel() }}@if ($allocation->payment->reference) <br>&nbsp;&nbsp;مرجع: <span class="ltr">{{ $allocation->payment->reference }}</span>@endif</td>
+                    <td class="num">{{ money($allocation->amount) }}</td></tr>
+            @endif
+        @endforeach
         @if ($sale->amount_tendered)
             <tr><td>المبلغ المستلم</td><td class="num">{{ money($sale->amount_tendered) }}</td></tr>
             <tr><td>الباقي</td><td class="num">{{ money($sale->change_given) }}</td></tr>

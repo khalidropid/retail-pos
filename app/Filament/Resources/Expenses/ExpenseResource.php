@@ -5,9 +5,9 @@ namespace App\Filament\Resources\Expenses;
 use App\Enums\RecordStatus;
 use App\Filament\Resources\Expenses\Pages\ListExpenses;
 use App\Filament\Support\Domain;
+use App\Filament\Support\PaymentFields;
 use App\Models\Expense;
 use App\Models\ExpenseCategory;
-use App\Models\PaymentMethod;
 use App\Services\ExpenseService;
 use BackedEnum;
 use Filament\Actions\Action;
@@ -46,12 +46,8 @@ class ExpenseResource extends Resource
                 Select::make('expense_category_id')->label('التصنيف')->required()
                     ->options(fn () => ExpenseCategory::query()->where('is_active', true)->pluck('name', 'id')),
                 TextInput::make('amount')->label('المبلغ')->numeric()->minValue(0.01)->required(),
-                Select::make('payment_method_id')->label('طريقة الدفع')->required()
-                    ->options(fn () => PaymentMethod::query()->active()->pluck('name', 'id'))
-                    ->default(fn () => PaymentMethod::query()->where('code', 'cash')->value('id'))
-                    ->helperText('الدفع النقدي يُخصم من صندوقك المفتوح'),
+                ...PaymentFields::make(),
                 DatePicker::make('expense_date')->label('التاريخ')->required()->default(today())->maxDate(today()),
-                TextInput::make('reference')->label('المرجع / رقم الوصل')->maxLength(100),
                 Textarea::make('description')->label('الوصف')->required()->maxLength(500)->rows(2),
             ])
             ->action(fn (array $data) => Domain::run(fn () => app(ExpenseService::class)->create($data, auth()->user()), 'تم تسجيل المصروف'));

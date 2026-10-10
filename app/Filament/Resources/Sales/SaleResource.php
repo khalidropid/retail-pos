@@ -10,6 +10,7 @@ use App\Filament\Resources\Sales\Pages\ViewSale;
 use App\Filament\Resources\Sales\RelationManagers\PaymentAllocationsRelationManager;
 use App\Filament\Resources\Sales\RelationManagers\ReturnsRelationManager;
 use App\Filament\Support\Domain;
+use App\Filament\Support\PaymentFields;
 use App\Models\PaymentMethod;
 use App\Models\Sale;
 use App\Models\SaleItem;
@@ -22,7 +23,6 @@ use Filament\Actions\ViewAction;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Hidden;
 use Filament\Forms\Components\Repeater;
-use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
 use Filament\Infolists\Components\RepeatableEntry;
 use Filament\Infolists\Components\TextEntry;
@@ -99,13 +99,14 @@ class SaleResource extends Resource
                         TextInput::make('returnable')->label('المتاح للإرجاع')->disabled()->dehydrated(false),
                         TextInput::make('quantity')->label('الكمية المرتجعة')->numeric()->minValue(0)->required(),
                     ]),
-                Select::make('refund_method_id')->label('طريقة رد المبلغ (إن وُجد)')
-                    ->options(fn () => PaymentMethod::query()->active()->pluck('name', 'id')),
+                ...PaymentFields::make(method: 'refund_method_id', accountType: 'refund_account_type_id', reference: 'refund_reference',
+                    methodLabel: 'طريقة رد المبلغ (إن وُجد مبلغ يُرد)', required: false),
                 TextInput::make('reason')->label('سبب الإرجاع')->required()->maxLength(255),
             ])
             ->action(fn (Sale $record, array $data) => Domain::run(fn () => app(ReturnService::class)->returnSale(
                 $record, array_values($data['lines'] ?? []), $data['reason'], auth()->user(),
                 $data['refund_method_id'] ? (int) $data['refund_method_id'] : null,
+                $data['refund_account_type_id'] ?? null, $data['refund_reference'] ?? null,
             ), 'تم تسجيل المرتجع'));
     }
 

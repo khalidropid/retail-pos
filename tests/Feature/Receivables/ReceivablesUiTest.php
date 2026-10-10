@@ -66,6 +66,7 @@ class ReceivablesUiTest extends TestCase
             'customer_id' => $customer->id,
             'amount' => 50000,
             'payment_method_id' => PaymentMethod::query()->where('code', 'bank_transfer')->value('id'),
+            'reference' => 'BNK-778',
             'auto_allocate' => false,
             'allocations' => $rows,
         ])->call('create')->assertHasNoFormErrors();
@@ -83,7 +84,8 @@ class ReceivablesUiTest extends TestCase
             ->fillForm([
                 'customer_id' => $customer->id,
                 'amount' => 999999,
-                'payment_method_id' => PaymentMethod::query()->where('code', 'card')->value('id'),
+                'payment_method_id' => PaymentMethod::query()->where('code', 'bank_transfer')->value('id'),
+                'reference' => 'BNK-1',
                 'auto_allocate' => true,
             ])
             ->call('create')
@@ -97,7 +99,7 @@ class ReceivablesUiTest extends TestCase
         [$customer] = $this->customerWithInvoices();
         $manager = $this->userWithRole('manager');
         $payment = app(CustomerPaymentService::class)->recordCustomerPayment($customer, '120000',
-            PaymentMethod::query()->where('code', 'card')->value('id'), $manager);
+            $this->accountsMethodId(), $manager, reference: 'JW-55', accountTypeId: $this->walletTypeId());
 
         $this->actingAs($manager)->get(route('print.payment-receipt', $payment))->assertOk()
             ->assertSee('إيصال سداد')->assertSee($payment->number)->assertSee('أحمد')

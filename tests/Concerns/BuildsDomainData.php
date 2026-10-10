@@ -5,6 +5,7 @@ namespace Tests\Concerns;
 use App\Models\CashRegister;
 use App\Models\CashRegisterSession;
 use App\Models\Customer;
+use App\Models\PaymentAccountType;
 use App\Models\PaymentMethod;
 use App\Models\Product;
 use App\Models\Sale;
@@ -52,5 +53,20 @@ trait BuildsDomainData
             'customer_id' => $customer?->id,
             'payment_method_id' => PaymentMethod::cash()->id,
         ], $extra), $cashier);
+    }
+
+    protected function walletTypeId(string $code = 'jawali'): int
+    {
+        return PaymentAccountType::query()->where('code', $code)->value('id');
+    }
+
+    protected function accountsMethodId(): int
+    {
+        return PaymentMethod::query()->where('code', 'card')->value('id');
+    }
+
+    protected function bankMethodId(): int
+    {
+        return PaymentMethod::query()->where('code', 'bank_transfer')->value('id');
     }
 }

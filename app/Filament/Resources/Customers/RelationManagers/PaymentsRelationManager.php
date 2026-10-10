@@ -35,7 +35,8 @@ class PaymentsRelationManager extends RelationManager
                 TextColumn::make('number')->label('السند'),
                 TextColumn::make('payment_date')->label('التاريخ')->dateTime('Y-m-d H:i'),
                 TextColumn::make('amount')->label('المبلغ')->formatStateUsing(fn ($state) => money($state)),
-                TextColumn::make('paymentMethod.name')->label('الطريقة'),
+                TextColumn::make('method')->label('الطريقة')->state(fn (CustomerPayment $record) => $record->methodLabel()),
+                TextColumn::make('reference')->label('المرجع')->placeholder('-'),
                 TextColumn::make('invoices')->label('الفواتير')->wrap()
                     ->state(fn (CustomerPayment $record) => $record->allocations->map(fn ($a) => $a->sale->number)->implode('، ')),
                 TextColumn::make('user.name')->label('الموظف'),

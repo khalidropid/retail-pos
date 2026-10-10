@@ -11,6 +11,6 @@ class ViewCustomerPayment extends ViewRecord
 
     protected function getHeaderActions(): array
     {
-        return [CustomerPaymentResource::printAction(), CustomerPaymentResource::reverseAction()];
+        return [CustomerPaymentResource::printAction(), CustomerPaymentResource::verifyAction(), CustomerPaymentResource::reverseAction()];
     }
 }

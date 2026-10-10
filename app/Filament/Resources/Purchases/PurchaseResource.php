@@ -10,7 +10,7 @@ use App\Filament\Resources\Purchases\Pages\ViewPurchase;
 use App\Filament\Resources\Purchases\RelationManagers\ReceiptsRelationManager;
 use App\Filament\Resources\Purchases\RelationManagers\ReturnsRelationManager;
 use App\Filament\Support\Domain;
-use App\Models\PaymentMethod;
+use App\Filament\Support\PaymentFields;
 use App\Models\Product;
 use App\Models\Purchase;
 use App\Models\PurchaseItem;
@@ -167,10 +167,7 @@ class PurchaseResource extends Resource
                     ->visible(fn () => auth()->user()->can('supplier_payments.create'))
                     ->schema([
                         TextInput::make('payment_amount')->label('المبلغ المدفوع الآن')->numeric()->minValue(0),
-                        Select::make('payment_method_id')->label('طريقة الدفع')
-                            ->options(fn () => PaymentMethod::query()->active()->pluck('name', 'id'))
-                            ->requiredWith('payment_amount'),
-                        TextInput::make('payment_reference')->label('المرجع')->maxLength(100),
+                        ...PaymentFields::make(reference: 'payment_reference', required: false),
                     ]),
             ])
             ->action(fn (Purchase $record, array $data) => Domain::run(fn () => app(PurchaseService::class)->receive(
@@ -178,6 +175,7 @@ class PurchaseResource extends Resource
                     'amount' => $data['payment_amount'] ?? null,
                     'payment_method_id' => $data['payment_method_id'] ?? null,
                     'reference' => $data['payment_reference'] ?? null,
+                    'account_type_id' => $data['payment_account_type_id'] ?? null,
                 ]), 'تم الاستلام وتحديث المخزون'));
     }
 
@@ -226,13 +224,11 @@ class PurchaseResource extends Resource
             ->schema(fn (Purchase $record) => [
                 TextInput::make('amount')->label('المبلغ')->numeric()->required()->minValue(0.01)
                     ->maxValue((float) $record->amountDue())->default($record->amountDue()),
-                Select::make('payment_method_id')->label('طريقة الدفع')->required()
-                    ->options(PaymentMethod::query()->active()->pluck('name', 'id')),
-                TextInput::make('reference')->label('المرجع')->maxLength(100),
+                ...PaymentFields::make(),
             ])
             ->action(fn (Purchase $record, array $data) => Domain::run(fn () => app(SupplierPaymentService::class)->pay(
                 $record->supplier, (string) $data['amount'], (int) $data['payment_method_id'], auth()->user(),
-                $record->id, $data['reference'] ?? null), 'تم تسجيل الدفعة'));
+                $record->id, $data['reference'] ?? null, null, $data['payment_account_type_id'] ?? null), 'تم تسجيل الدفعة'));
     }
 
     public static function table(Table $table): Table

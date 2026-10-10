@@ -14,6 +14,7 @@ use App\Models\Sale;
 use App\Models\SaleItem;
 use App\Models\SaleReturn;
 use App\Models\User;
+use App\Services\Payments\PaymentDetailsResolver;
 use App\Support\Money;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Facades\DB;
@@ -36,7 +37,7 @@ class ReturnService
      *
      * @param  array<int, array{sale_item_id:int, quantity:string|int|float}>  $lines
      */
-    public function returnSale(Sale $sale, array $lines, string $reason, User $user, ?int $refundMethodId = null): SaleReturn
+    public function returnSale(Sale $sale, array $lines, string $reason, User $user, ?int $refundMethodId = null, int|string|null $refundAccountTypeId = null, ?string $refundReference = null): SaleReturn
     {
         if (! $user->can('returns.create')) {
             throw new AuthorizationException('ليس لديك صلاحية إجراء المرتجعات.');
@@ -50,7 +51,7 @@ class ReturnService
             throw new BusinessException('أدخل كمية مرتجعة لصنف واحد على الأقل.');
         }
 
-        return DB::transaction(function () use ($sale, $lines, $reason, $user, $refundMethodId) {
+        return DB::transaction(function () use ($sale, $lines, $reason, $user, $refundMethodId, $refundAccountTypeId, $refundReference) {
             // Lock order: customer -> sale -> items/products -> register.
             if ($sale->customer_id) {
                 Customer::query()->withTrashed()->lockForUpdate()->findOrFail($sale->customer_id);
@@ -125,10 +126,11 @@ class ReturnService
             $refund = Money::sub($total, $debtReduction);
 
             $method = null;
+            $details = null;
             $session = null;
             if (Money::isPositive($refund)) {
-                $method = PaymentMethod::query()->where('is_active', true)->find($refundMethodId ?? PaymentMethod::cash()->id)
-                    ?? throw new BusinessException('اختر طريقة رد المبلغ للعميل.');
+                $details = app(PaymentDetailsResolver::class)->resolve($refundMethodId ?? PaymentMethod::cash()->id, $refundAccountTypeId, $refundReference);
+                $method = $details->method;
                 if ($method->isCash()) {
                     $session = $this->registers->requireOpenSession($user);
                     $this->registers->record($session, CashMovementType::Refund, CashDirection::Out, $refund, $user, $return,
@@ -143,8 +145,9 @@ class ReturnService
                 'debt_reduction' => $debtReduction,
                 'refund_amount' => $refund,
                 'refund_payment_method_id' => $method?->id,
+                'refund_reference' => $details?->reference,
                 'cash_register_session_id' => $session?->id,
-            ]);
+            ] + ($details ? $details->attributes('refund_') : []));
 
             $sale->returned_amount = Money::add($sale->returned_amount, $total);
             $sale->refunded_amount = Money::add($sale->refunded_amount, $refund);

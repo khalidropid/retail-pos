@@ -22,7 +22,8 @@ class FinancialReports extends ReportPage
             'cash' => ['label' => 'الحركات النقدية', 'dated' => true],
             'expenses' => ['label' => 'المصروفات حسب التصنيف', 'dated' => true],
             'refunds' => ['label' => 'المرتجعات والمبالغ المردودة', 'dated' => true],
-            'methods' => ['label' => 'المقبوضات حسب طريقة الدفع', 'dated' => true],
+            'methods' => ['label' => 'المقبوضات حسب طريقة الدفع ونوع الحساب', 'dated' => true],
+            'transactions' => ['label' => 'عمليات الحسابات والتحويلات (بأرقام المراجع)', 'dated' => true],
         ];
     }
 
@@ -33,6 +34,7 @@ class FinancialReports extends ReportPage
             'expenses' => $reports->expenses($from, $to),
             'refunds' => $reports->refunds($from, $to),
             'methods' => $reports->paymentMethods($from, $to),
+            'transactions' => $reports->paymentTransactions($from, $to),
         };
     }
 }

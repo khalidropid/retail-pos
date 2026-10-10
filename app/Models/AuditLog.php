@@ -51,6 +51,7 @@ class AuditLog extends Model
             'sale_returned' => 'مرتجع مبيعات',
             'customer_payment' => 'دفعة عميل',
             'payment_reversed' => 'عكس دفعة',
+            'payment_verified' => 'تأكيد تحويل',
             'credit_limit_changed' => 'تغيير الحد الائتماني',
             'credit_limit_overridden' => 'تجاوز الحد الائتماني',
             'register_opened' => 'فتح صندوق',

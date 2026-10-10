@@ -8,8 +8,8 @@ use App\Enums\RecordStatus;
 use App\Exceptions\BusinessException;
 use App\Models\Expense;
 use App\Models\ExpenseCategory;
-use App\Models\PaymentMethod;
 use App\Models\User;
+use App\Services\Payments\PaymentDetailsResolver;
 use App\Support\Money;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Facades\DB;
@@ -41,7 +41,8 @@ class ExpenseService
 
         return DB::transaction(function () use ($data, $amount, $user) {
             $category = ExpenseCategory::query()->where('is_active', true)->findOrFail($data['expense_category_id']);
-            $method = PaymentMethod::query()->where('is_active', true)->findOrFail($data['payment_method_id']);
+            $details = app(PaymentDetailsResolver::class)->resolve($data['payment_method_id'] ?? null, $data['payment_account_type_id'] ?? null, $data['reference'] ?? null);
+            $method = $details->method;
             $session = $method->isCash() ? $this->registers->requireOpenSession($user) : null;
 
             $expense = Expense::query()->create([
@@ -52,9 +53,9 @@ class ExpenseService
                 'expense_date' => $data['expense_date'] ?? today(),
                 'payment_method_id' => $method->id,
                 'cash_register_session_id' => $session?->id,
-                'reference' => $data['reference'] ?? null,
+                'reference' => $details->reference,
                 'user_id' => $user->id,
-            ]);
+            ] + $details->attributes());
 
             if ($session) {
                 $this->registers->record($session, CashMovementType::Expense, CashDirection::Out, $amount, $user, $expense,

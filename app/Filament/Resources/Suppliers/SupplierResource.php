@@ -9,7 +9,7 @@ use App\Filament\Resources\Suppliers\Pages\ViewSupplier;
 use App\Filament\Resources\Suppliers\RelationManagers\LedgerEntriesRelationManager;
 use App\Filament\Resources\Suppliers\RelationManagers\PurchasesRelationManager;
 use App\Filament\Support\Domain;
-use App\Models\PaymentMethod;
+use App\Filament\Support\PaymentFields;
 use App\Models\Supplier;
 use App\Services\SupplierPaymentService;
 use App\Support\Money;
@@ -89,14 +89,13 @@ class SupplierResource extends Resource
                     ->helperText('الرصيد المستحق: '.money($record->balance)),
                 Select::make('purchase_id')->label('ربط بأمر شراء (اختياري)')
                     ->options(fn () => $record->purchases()->where('received_total', '>', 0)->latest('id')->limit(50)->pluck('number', 'id')),
-                Select::make('payment_method_id')->label('طريقة الدفع')->required()
-                    ->options(PaymentMethod::query()->active()->pluck('name', 'id')),
-                TextInput::make('reference')->label('المرجع (رقم حوالة/شيك)')->maxLength(100),
+                ...PaymentFields::make(),
                 Textarea::make('notes')->label('ملاحظات')->rows(2),
             ])
             ->action(fn (Supplier $record, array $data) => Domain::run(fn () => app(SupplierPaymentService::class)->pay(
                 $record, (string) $data['amount'], (int) $data['payment_method_id'], auth()->user(),
                 $data['purchase_id'] ? (int) $data['purchase_id'] : null, $data['reference'] ?? null, $data['notes'] ?? null,
+                $data['payment_account_type_id'] ?? null,
             ), 'تم تسجيل الدفعة'));
     }
 

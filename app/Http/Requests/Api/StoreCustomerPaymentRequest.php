@@ -17,6 +17,7 @@ class StoreCustomerPaymentRequest extends FormRequest
             'amount' => ['required', 'numeric', 'gt:0'],
             'payment_method_id' => ['required', 'integer', 'exists:payment_methods,id'],
             'reference' => ['nullable', 'string', 'max:100'],
+            'account_type_id' => ['nullable', 'integer'],
             'notes' => ['nullable', 'string', 'max:1000'],
             'allocations' => ['nullable', 'array'],
             'allocations.*.sale_id' => ['required', 'integer'],

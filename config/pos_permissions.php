@@ -32,6 +32,7 @@ return [
             'customer_payments.view' => 'عرض دفعات العملاء',
             'customer_payments.create' => 'تسجيل دفعة من عميل',
             'customer_payments.reverse' => 'عكس / إلغاء دفعة عميل',
+            'customer_payments.verify' => 'تأكيد التحويلات البنكية',
         ],
         'المنتجات' => [
             'products.view' => 'عرض المنتجات',

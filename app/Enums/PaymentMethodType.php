@@ -8,6 +8,7 @@ use Filament\Support\Contracts\HasLabel;
 enum PaymentMethodType: string implements HasColor, HasLabel
 {
     case Cash = 'cash';
+    case Account = 'account';
     case Card = 'card';
     case BankTransfer = 'bank_transfer';
     case Other = 'other';
@@ -16,6 +17,7 @@ enum PaymentMethodType: string implements HasColor, HasLabel
     {
         return match ($this) {
             self::Cash => 'نقدي',
+            self::Account => 'الحسابات (محافظ إلكترونية)',
             self::Card => 'بطاقة',
             self::BankTransfer => 'تحويل بنكي',
             self::Other => 'أخرى',
@@ -26,6 +28,7 @@ enum PaymentMethodType: string implements HasColor, HasLabel
     {
         return match ($this) {
             self::Cash => 'success',
+            self::Account => 'warning',
             self::Card => 'info',
             self::BankTransfer => 'primary',
             self::Other => 'gray',

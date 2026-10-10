@@ -32,13 +32,13 @@ class SaleController extends Controller
     {
         Gate::authorize('view', $sale);
 
-        return new SaleResource($sale->load(['customer', 'user', 'items']));
+        return new SaleResource($sale->load(['customer', 'user', 'items', 'allocations.payment']));
     }
 
     public function store(StoreSaleRequest $request, SaleService $sales): JsonResponse
     {
         $sale = $sales->completeSale($request->validated(), $request->user());
 
-        return (new SaleResource($sale->load(['customer', 'user', 'items'])))->response()->setStatusCode(201);
+        return (new SaleResource($sale->load(['customer', 'user', 'items', 'allocations.payment'])))->response()->setStatusCode(201);
     }
 }

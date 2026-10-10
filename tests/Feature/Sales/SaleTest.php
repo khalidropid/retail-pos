@@ -7,7 +7,6 @@ use App\Enums\SaleStatus;
 use App\Exceptions\BusinessException;
 use App\Models\CashMovement;
 use App\Models\Customer;
-use App\Models\PaymentMethod;
 use App\Models\Sale;
 use App\Models\StockMovement;
 use App\Services\CashRegisterService;
@@ -151,7 +150,9 @@ class SaleTest extends TestCase
         $session = $this->openRegister($cashier, '0');
         $p = $this->stocked(5, ['sale_price' => '1000']);
 
-        $this->sell($cashier, [[$p, 1]], 'cash', null, ['payment_method_id' => PaymentMethod::query()->where('code', 'card')->value('id')]);
+        $this->sell($cashier, [[$p, 1]], 'cash', null, [
+            'payment_method_id' => $this->accountsMethodId(), 'account_type_id' => $this->walletTypeId(), 'payment_reference' => 'JW-9',
+        ]);
 
         $this->assertSame('0.00', app(CashRegisterService::class)->expectedCash($session));
     }

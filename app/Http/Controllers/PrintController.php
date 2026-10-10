@@ -25,7 +25,7 @@ class PrintController extends Controller
     {
         Gate::authorize('view', $sale);
 
-        $sale->load(['items', 'customer', 'user', 'paymentMethod']);
+        $sale->load(['items', 'customer', 'user', 'paymentMethod', 'allocations.payment.paymentMethod']);
 
         return view('print.sale-receipt', ['sale' => $sale]);
     }

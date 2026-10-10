@@ -14,6 +14,10 @@ class CustomerPayment extends Model
 
     public const SOURCE_ACCOUNT = 'account';
 
+    public const VERIFICATION_PENDING = 'pending';
+
+    public const VERIFICATION_VERIFIED = 'verified';
+
     protected $guarded = ['id'];
 
     protected $attributes = ['status' => 'active'];
@@ -27,6 +31,7 @@ class CustomerPayment extends Model
             'balance_after' => 'decimal:2',
             'payment_date' => 'datetime',
             'voided_at' => 'datetime',
+            'verified_at' => 'datetime',
         ];
     }
 
@@ -58,6 +63,33 @@ class CustomerPayment extends Model
     public function session(): BelongsTo
     {
         return $this->belongsTo(CashRegisterSession::class, 'cash_register_session_id');
+    }
+
+    public function accountType(): BelongsTo
+    {
+        return $this->belongsTo(PaymentAccountType::class, 'payment_account_type_id');
+    }
+
+    public function verifier(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'verified_by')->withTrashed();
+    }
+
+    /** Method as it was named when the payment was taken, plus account type. */
+    public function methodLabel(): string
+    {
+        $name = $this->payment_method_name ?? $this->paymentMethod?->name ?? '-';
+
+        return $name.($this->account_type_name ? ' - '.$this->account_type_name : '');
+    }
+
+    public function verificationLabel(): ?string
+    {
+        return match ($this->verification_status) {
+            self::VERIFICATION_PENDING => 'بانتظار التأكيد',
+            self::VERIFICATION_VERIFIED => 'مؤكد',
+            default => null,
+        };
     }
 
     public function allocations(): HasMany

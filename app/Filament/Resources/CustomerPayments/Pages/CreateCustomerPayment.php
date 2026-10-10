@@ -45,6 +45,7 @@ class CreateCustomerPayment extends CreateRecord
             $allocations,
             $data['reference'] ?? null,
             $data['notes'] ?? null,
+            $data['payment_account_type_id'] ?? null,
         ));
     }
 

@@ -419,14 +419,46 @@ class ReportService
     {
         [$f, $t] = $this->range($from, $to);
 
-        $rows = DB::table('customer_payments as p')->join('payment_methods as m', 'm.id', '=', 'p.payment_method_id')
+        // Uses the names stored on each payment, so renamed methods keep their history.
+        $rows = DB::table('customer_payments as p')->leftJoin('payment_methods as m', 'm.id', '=', 'p.payment_method_id')
             ->where('p.status', 'active')->whereBetween('p.payment_date', [$f, $t])
-            ->groupBy('m.id', 'm.name')
-            ->selectRaw("m.name AS method, COUNT(*) AS count, SUM(CASE WHEN p.source = 'pos' THEN p.amount ELSE 0 END) AS pos, SUM(CASE WHEN p.source = 'account' THEN p.amount ELSE 0 END) AS account, SUM(p.amount) AS total")
+            ->groupByRaw('COALESCE(p.payment_method_name, m.name), p.account_type_name')
+            ->selectRaw('COALESCE(p.payment_method_name, m.name) AS method, p.account_type_name AS account_type, COUNT(*) AS count')
+            ->selectRaw("SUM(CASE WHEN p.source = 'pos' THEN p.amount ELSE 0 END) AS pos, SUM(CASE WHEN p.source = 'account' THEN p.amount ELSE 0 END) AS account")
+            ->selectRaw("SUM(CASE WHEN p.verification_status = 'pending' THEN p.amount ELSE 0 END) AS pending, SUM(p.amount) AS total")
             ->orderByDesc('total')->get()
-            ->map(fn ($r) => ['method' => $r->method, 'count' => (int) $r->count, 'pos' => $r->pos, 'account' => $r->account, 'total' => $r->total]);
+            ->map(fn ($r) => ['method' => $r->method, 'account_type' => $r->account_type ?? '-', 'count' => (int) $r->count,
+                'pos' => $r->pos, 'account' => $r->account, 'pending' => $r->pending, 'total' => $r->total]);
 
-        return $this->result(['method' => 'طريقة الدفع', 'count' => 'العمليات', 'pos' => 'عند البيع', 'account' => 'سداد ديون', 'total' => 'الإجمالي'],
-            $rows, ['pos', 'account', 'total'], ['pos', 'account', 'total', 'count']);
+        return $this->result(['method' => 'طريقة الدفع', 'account_type' => 'نوع الحساب', 'count' => 'العمليات', 'pos' => 'عند البيع',
+            'account' => 'سداد ديون', 'pending' => 'بانتظار التأكيد', 'total' => 'الإجمالي'],
+            $rows, ['pos', 'account', 'pending', 'total'], ['pos', 'account', 'pending', 'total', 'count']);
+    }
+
+    /** Every non-cash receipt with its reference (for reconciliation with bank/wallet statements). */
+    public function paymentTransactions(?string $from, ?string $to): array
+    {
+        [$f, $t] = $this->range($from, $to);
+
+        $rows = DB::table('customer_payments as p')->leftJoin('payment_methods as m', 'm.id', '=', 'p.payment_method_id')
+            ->leftJoin('customers as c', 'c.id', '=', 'p.customer_id')
+            ->leftJoin('users as u', 'u.id', '=', 'p.user_id')
+            ->whereBetween('p.payment_date', [$f, $t])
+            ->where('m.type', '!=', 'cash')
+            ->orderByDesc('p.payment_date')
+            ->get(['p.number', 'p.payment_date', 'c.name as customer', DB::raw('COALESCE(p.payment_method_name, m.name) AS method'),
+                'p.account_type_name', 'p.reference', 'p.amount', 'p.status', 'p.verification_status', 'u.name as user'])
+            ->map(fn ($r) => [
+                'number' => $r->number, 'date' => Carbon::parse($r->payment_date)->format('Y-m-d H:i'), 'customer' => $r->customer ?? 'نقدي',
+                'method' => $r->method.($r->account_type_name ? ' - '.$r->account_type_name : ''), 'reference' => $r->reference ?? '-',
+                'amount' => $r->amount,
+                'status' => $r->status === 'voided' ? 'معكوسة' : match ($r->verification_status) {
+                    'pending' => 'بانتظار التأكيد', 'verified' => 'مؤكدة', default => 'فعّالة'
+                },
+                'user' => $r->user,
+            ]);
+
+        return $this->result(['number' => 'السند', 'date' => 'التاريخ', 'customer' => 'العميل', 'method' => 'الطريقة', 'reference' => 'رقم المرجع',
+            'amount' => 'المبلغ', 'status' => 'الحالة', 'user' => 'الموظف'], $rows, ['amount'], ['amount']);
     }
 }

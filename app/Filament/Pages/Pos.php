@@ -6,6 +6,7 @@ use App\Exceptions\BusinessException;
 use App\Filament\Resources\CashRegisterSessions\CashRegisterSessionResource;
 use App\Models\Category;
 use App\Models\Customer;
+use App\Models\PaymentAccountType;
 use App\Models\PaymentMethod;
 use App\Models\Product;
 use App\Services\CashRegisterService;
@@ -65,8 +66,15 @@ class Pos extends Page
 
         return [
             'categories' => Category::query()->where('is_active', true)->orderBy('sort_order')->orderBy('name')->get(['id', 'name'])->toArray(),
-            'paymentMethods' => PaymentMethod::query()->active()->get(['id', 'name', 'code', 'type'])
-                ->map(fn ($m) => ['id' => $m->id, 'name' => $m->name, 'code' => $m->code, 'isCash' => $m->isCash()])->all(),
+            'paymentMethods' => PaymentMethod::query()->active()->where('available_at_pos', true)->get()
+                ->map(fn ($m) => [
+                    'id' => $m->id, 'name' => $m->name, 'code' => $m->code, 'isCash' => $m->isCash(),
+                    'requiresAccountType' => $m->requires_account_type,
+                    'requiresReference' => $m->requires_reference,
+                    'requiresVerification' => $m->requires_verification,
+                ])->all(),
+            'accountTypes' => PaymentAccountType::query()->active()->where('available_at_pos', true)->get()
+                ->map(fn ($t) => ['id' => $t->id, 'name' => $t->name, 'requiresReference' => $t->requires_reference])->all(),
             'currency' => ['symbol' => (string) settings('currency.symbol', ''), 'decimals' => (int) settings('currency.decimals', 0)],
             'tax' => ['enabled' => (bool) settings('tax.enabled', true), 'inclusive' => (bool) settings('tax.prices_include_tax', false)],
             'maxDiscountPercent' => (float) settings('pos.max_discount_percent', 100),
@@ -173,8 +181,14 @@ class Pos extends Page
                 ])->values()->all(),
                 'sale_type' => ($payload['saleType'] ?? 'cash') === 'credit' ? 'credit' : 'cash',
                 'customer_id' => $payload['customerId'] ?? null,
+                // Older clients send a single paymentMethodId instead of payment lines.
                 'payment_method_id' => $payload['paymentMethodId'] ?? null,
-                'paid_amount' => ($payload['saleType'] ?? 'cash') === 'credit' ? (string) ($payload['downPayment'] ?? 0) : null,
+                'payments' => ! isset($payload['payments']) ? null : collect($payload['payments'])->map(fn ($p) => [
+                    'payment_method_id' => (int) ($p['methodId'] ?? 0),
+                    'amount' => (string) ($p['amount'] ?? 0),
+                    'account_type_id' => $p['accountTypeId'] ?? null,
+                    'reference' => isset($p['reference']) ? (string) $p['reference'] : null,
+                ])->values()->all(),
                 'amount_tendered' => filled($payload['tendered'] ?? null) ? (string) $payload['tendered'] : null,
                 'invoice_discount' => (string) ($payload['invoiceDiscount'] ?? 0),
                 'due_date' => $payload['dueDate'] ?? null,

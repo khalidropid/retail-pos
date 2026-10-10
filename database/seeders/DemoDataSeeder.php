@@ -6,6 +6,7 @@ use App\Exceptions\BusinessException;
 use App\Models\CashRegister;
 use App\Models\Customer;
 use App\Models\ExpenseCategory;
+use App\Models\PaymentAccountType;
 use App\Models\PaymentMethod;
 use App\Models\Product;
 use App\Models\Sale;
@@ -159,6 +160,7 @@ class DemoDataSeeder extends Seeder
         // Walk-in baskets draw from products not reserved for the scheduled credit sales below.
         $reserved = ['MKP-001', 'MKP-002', 'MKP-003', 'MKP-004', 'SKN-003', 'SKN-004', 'HAR-001', 'HAR-002', 'PRF-001', 'TLS-001',
             'ACC-001', 'ACC-002', 'ACC-006', 'NAL-001', 'HAR-003'];
+        $wallets = PaymentAccountType::query()->active()->where('available_at_pos', true)->get();
         $products = Product::query()->where('track_stock', true)->where('stock_quantity', '>', 20)
             ->whereNotIn('sku', $reserved)->with('unit')->get();
 
@@ -207,11 +209,17 @@ class DemoDataSeeder extends Seeder
                 ])->values()->all();
                 $method = mt_rand(1, 10) <= 7 ? $this->cash : $this->card;
                 try {
+                    $wallet = $method->requires_account_type ? $wallets[mt_rand(0, $wallets->count() - 1)] : null;
                     app(SaleService::class)->completeSale([
                         'items' => $lines, 'sale_type' => 'cash', 'payment_method_id' => $method->id,
+                        'account_type_id' => $wallet?->id, 'payment_reference' => $wallet ? 'W'.mt_rand(100000, 999999) : null,
                         'customer_id' => mt_rand(1, 10) === 1 ? $c['fatima']->id : null,
                     ], $this->cashier);
-                } catch (BusinessException) {
+                } catch (BusinessException $e) {
+                    // Only stock shortages are expected here; anything else is a seeder bug.
+                    if (! str_contains($e->getMessage(), 'غير كافية')) {
+                        throw $e;
+                    }
                     // Out of stock for a random pick: skip this basket.
                 }
             }

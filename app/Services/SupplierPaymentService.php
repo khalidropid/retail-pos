@@ -8,11 +8,11 @@ use App\Enums\RecordStatus;
 use App\Enums\SupplierLedgerType;
 use App\Exceptions\BusinessException;
 use App\Models\CashRegisterSession;
-use App\Models\PaymentMethod;
 use App\Models\Purchase;
 use App\Models\Supplier;
 use App\Models\SupplierPayment;
 use App\Models\User;
+use App\Services\Payments\PaymentDetailsResolver;
 use App\Support\Money;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Facades\DB;
@@ -34,6 +34,7 @@ class SupplierPaymentService
         ?int $purchaseId = null,
         ?string $reference = null,
         ?string $notes = null,
+        int|string|null $accountTypeId = null,
     ): SupplierPayment {
         if (! $actor->can('supplier_payments.create')) {
             throw new AuthorizationException('ليس لديك صلاحية تسجيل دفعات الموردين.');
@@ -44,9 +45,11 @@ class SupplierPaymentService
             throw new BusinessException('مبلغ الدفعة يجب أن يكون أكبر من صفر.');
         }
 
-        return DB::transaction(function () use ($supplier, $amount, $paymentMethodId, $actor, $purchaseId, $reference, $notes) {
+        $details = app(PaymentDetailsResolver::class)->resolve($paymentMethodId, $accountTypeId, $reference);
+
+        return DB::transaction(function () use ($supplier, $amount, $details, $actor, $purchaseId, $notes) {
             $supplier = Supplier::query()->lockForUpdate()->findOrFail($supplier->id);
-            $method = PaymentMethod::query()->where('is_active', true)->findOrFail($paymentMethodId);
+            $method = $details->method;
 
             if (Money::gt($amount, $supplier->balance)) {
                 throw new BusinessException('مبلغ الدفعة ('.money($amount).') أكبر من الرصيد المستحق للمورد ('.money($supplier->balance).').');
@@ -70,9 +73,9 @@ class SupplierPaymentService
                 'amount' => $amount,
                 'payment_date' => now(),
                 'user_id' => $actor->id,
-                'reference' => $reference,
+                'reference' => $details->reference,
                 'notes' => $notes,
-            ]);
+            ] + $details->attributes());
 
             if (isset($purchase)) {
                 $purchase->update(['paid_amount' => Money::add($purchase->paid_amount, $amount)]);
@@ -84,7 +87,7 @@ class SupplierPaymentService
             }
 
             $this->accounts->post($supplier, SupplierLedgerType::Payment, $amount, '0',
-                "دفعة {$payment->number}".($reference ? " - مرجع {$reference}" : ''), $actor, $payment);
+                "دفعة {$payment->number}".($details->reference ? " - مرجع {$details->reference}" : ''), $actor, $payment);
 
             $this->audit->log('supplier_payment', $payment, null, ['number' => $payment->number, 'amount' => $amount], userId: $actor->id);
 

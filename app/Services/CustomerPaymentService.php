@@ -11,9 +11,10 @@ use App\Models\CashRegisterSession;
 use App\Models\Customer;
 use App\Models\CustomerPayment;
 use App\Models\PaymentAllocation;
-use App\Models\PaymentMethod;
 use App\Models\Sale;
 use App\Models\User;
+use App\Services\Payments\PaymentDetails;
+use App\Services\Payments\PaymentDetailsResolver;
 use App\Support\Money;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Collection;
@@ -32,10 +33,11 @@ class CustomerPaymentService
      * Payment taken at checkout and allocated to the new sale.
      * Must run inside the sale transaction (sale row already locked/new).
      */
-    public function recordPosPayment(Sale $sale, PaymentMethod $method, string $amount, User $user, ?CashRegisterSession $session): CustomerPayment
+    public function recordPosPayment(Sale $sale, PaymentDetails $details, string $amount, User $user, ?CashRegisterSession $session): CustomerPayment
     {
         $customer = $sale->customer_id ? Customer::query()->findOrFail($sale->customer_id) : null;
         $balanceBefore = $customer?->balance;
+        $method = $details->method;
 
         $payment = CustomerPayment::query()->create([
             'number' => $this->numbers->next('customer_payment'),
@@ -46,8 +48,10 @@ class CustomerPaymentService
             'payment_date' => now(),
             'user_id' => $user->id,
             'source' => CustomerPayment::SOURCE_POS,
+            'reference' => $details->reference,
+            'verification_status' => $details->needsVerification() ? CustomerPayment::VERIFICATION_PENDING : null,
             'notes' => "دفعة عند البيع - فاتورة {$sale->number}",
-        ]);
+        ] + $details->attributes());
 
         $this->applyAllocation($payment, $sale, $amount);
 
@@ -82,6 +86,7 @@ class CustomerPaymentService
         ?array $allocations = null,
         ?string $reference = null,
         ?string $notes = null,
+        int|string|null $accountTypeId = null,
     ): CustomerPayment {
         if (! $user->can('customer_payments.create')) {
             throw new AuthorizationException('ليس لديك صلاحية تسجيل دفعات العملاء.');
@@ -92,9 +97,11 @@ class CustomerPaymentService
             throw new BusinessException('مبلغ الدفعة يجب أن يكون أكبر من صفر.');
         }
 
-        return DB::transaction(function () use ($customer, $amount, $paymentMethodId, $user, $allocations, $reference, $notes) {
+        $details = app(PaymentDetailsResolver::class)->resolve($paymentMethodId, $accountTypeId, $reference);
+
+        return DB::transaction(function () use ($customer, $amount, $details, $user, $allocations, $notes) {
             $customer = Customer::query()->lockForUpdate()->findOrFail($customer->id);
-            $method = PaymentMethod::query()->where('is_active', true)->findOrFail($paymentMethodId);
+            $method = $details->method;
 
             if (Money::gt($amount, $customer->balance)) {
                 throw new BusinessException('مبلغ الدفعة ('.money($amount).') أكبر من إجمالي دين العميل ('.money($customer->balance).').');
@@ -121,9 +128,10 @@ class CustomerPaymentService
                 'payment_date' => now(),
                 'user_id' => $user->id,
                 'source' => CustomerPayment::SOURCE_ACCOUNT,
-                'reference' => $reference,
+                'reference' => $details->reference,
+                'verification_status' => $details->needsVerification() ? CustomerPayment::VERIFICATION_PENDING : null,
                 'notes' => $notes,
-            ]);
+            ] + $details->attributes());
 
             foreach ($plan as $saleId => $allocated) {
                 $this->applyAllocation($payment, $openSales->get($saleId), $allocated);
@@ -272,8 +280,44 @@ class CustomerPaymentService
                 'void_reason' => $reason,
             ]);
 
-            $this->audit->log('payment_reversed', $payment, ['status' => 'active', 'amount' => $payment->amount],
+            $this->audit->log('payment_reversed', $payment, [
+                'status' => 'active', 'amount' => $payment->amount,
+                'method' => $payment->methodLabel(), 'reference' => $payment->reference,
+                'verification_status' => $payment->verification_status,
+            ],
                 ['status' => 'voided', 'customer_balance' => $customer->balance], $reason, userId: $user->id);
+
+            return $payment;
+        });
+    }
+
+    /**
+     * Mark a pending transfer as verified (the money really arrived). The
+     * payment counts toward the balance either way; this records the check.
+     */
+    public function verifyPayment(CustomerPayment $payment, User $user, ?string $notes = null): CustomerPayment
+    {
+        if (! $user->can('customer_payments.verify')) {
+            throw new AuthorizationException('ليس لديك صلاحية تأكيد التحويلات.');
+        }
+
+        return DB::transaction(function () use ($payment, $user, $notes) {
+            $payment = CustomerPayment::query()->lockForUpdate()->findOrFail($payment->id);
+            if ($payment->isVoided()) {
+                throw new BusinessException('لا يمكن تأكيد دفعة معكوسة.');
+            }
+            if ($payment->verification_status !== CustomerPayment::VERIFICATION_PENDING) {
+                throw new BusinessException('هذه الدفعة لا تحتاج تأكيدًا أو تم تأكيدها مسبقًا.');
+            }
+
+            $payment->update([
+                'verification_status' => CustomerPayment::VERIFICATION_VERIFIED,
+                'verified_by' => $user->id,
+                'verified_at' => now(),
+            ]);
+
+            $this->audit->log('payment_verified', $payment, ['verification_status' => 'pending'],
+                ['verification_status' => 'verified', 'reference' => $payment->reference], $notes, userId: $user->id);
 
             return $payment;
         });

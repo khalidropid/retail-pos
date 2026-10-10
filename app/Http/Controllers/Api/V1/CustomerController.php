@@ -64,7 +64,7 @@ class CustomerController extends Controller
             : null;
 
         $payment = $payments->recordCustomerPayment($customer, (string) $request->input('amount'), $request->integer('payment_method_id'),
-            $request->user(), $allocations, $request->input('reference'), $request->input('notes'));
+            $request->user(), $allocations, $request->input('reference'), $request->input('notes'), $request->input('account_type_id'));
 
         return (new CustomerPaymentResource($payment->load(['paymentMethod', 'allocations'])))->response()->setStatusCode(201);
     }

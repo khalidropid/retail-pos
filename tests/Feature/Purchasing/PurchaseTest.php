@@ -97,7 +97,7 @@ class PurchaseTest extends TestCase
         $bank = PaymentMethod::query()->where('code', 'bank_transfer')->first();
 
         app(PurchaseService::class)->receive($purchase, [['purchase_item_id' => $purchase->items->first()->id, 'quantity' => 10]],
-            $this->userWithRole('manager'), null, ['amount' => '3000', 'payment_method_id' => $bank->id]);
+            $this->userWithRole('manager'), null, ['amount' => '3000', 'payment_method_id' => $bank->id, 'reference' => 'BNK-1']);
 
         $purchase->refresh();
         $this->assertSame('3000.00', $purchase->paid_amount);
@@ -130,16 +130,16 @@ class PurchaseTest extends TestCase
         $admin = $this->userWithRole('admin');
         app(PurchaseService::class)->receive($purchase, [['purchase_item_id' => $purchase->items->first()->id, 'quantity' => 5]], $admin);
         $supplier = $purchase->supplier;
-        $card = PaymentMethod::query()->where('code', 'card')->first();
+        $card = PaymentMethod::query()->where('code', 'bank_transfer')->first();
         $service = app(SupplierPaymentService::class);
 
         try {
-            $service->pay($supplier, '5001', $card->id, $admin);
+            $service->pay($supplier, '5001', $card->id, $admin, reference: 'BNK-2');
             $this->fail('Overpayment should be rejected');
         } catch (BusinessException) {
         }
 
-        $payment = $service->pay($supplier, '2000', $card->id, $admin, $purchase->id);
+        $payment = $service->pay($supplier, '2000', $card->id, $admin, $purchase->id, 'BNK-3');
         $this->assertSame('3000.00', $supplier->refresh()->balance);
 
         $service->reverse($payment, 'خطأ في المبلغ', $admin);
@@ -154,7 +154,7 @@ class PurchaseTest extends TestCase
         $purchase = $this->makePurchase([['product_id' => $product->id, 'quantity' => 1, 'unit_cost' => '1000']]);
         $admin = $this->userWithRole('admin');
         app(PurchaseService::class)->receive($purchase, [['purchase_item_id' => $purchase->items->first()->id, 'quantity' => 1]], $admin);
-        $payment = app(SupplierPaymentService::class)->pay($purchase->supplier, '500', PaymentMethod::query()->where('code', 'card')->value('id'), $admin);
+        $payment = app(SupplierPaymentService::class)->pay($purchase->supplier, '500', $this->accountsMethodId(), $admin, accountTypeId: $this->walletTypeId(), reference: 'W-1');
 
         $this->expectException(\LogicException::class);
         SupplierPayment::query()->findOrFail($payment->id)->delete();

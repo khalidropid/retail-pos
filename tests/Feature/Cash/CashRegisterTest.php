@@ -130,6 +130,7 @@ class CashRegisterTest extends TestCase
         $expense = app(ExpenseService::class)->create([
             'expense_category_id' => $category->id, 'amount' => '500000', 'description' => 'إيجار الشهر',
             'payment_method_id' => PaymentMethod::query()->where('code', 'bank_transfer')->value('id'),
+            'reference' => 'TRX-5001',
         ], $manager);
 
         $this->assertNull($expense->cash_register_session_id);
@@ -142,6 +143,7 @@ class CashRegisterTest extends TestCase
         $expense = app(ExpenseService::class)->create([
             'expense_category_id' => ExpenseCategory::query()->create(['name' => 'x'])->id, 'amount' => '10', 'description' => 'x',
             'payment_method_id' => PaymentMethod::query()->where('code', 'card')->value('id'),
+            'payment_account_type_id' => $this->walletTypeId(), 'reference' => 'W-778',
         ], $manager);
 
         $this->expectException(\LogicException::class);
