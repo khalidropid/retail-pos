@@ -9,5 +9,6 @@ Route::middleware(['auth', 'throttle:60,1'])->prefix('print')->name('print.')->g
     Route::get('sales/{sale}/receipt', [PrintController::class, 'saleReceipt'])->name('sale-receipt');
     Route::get('payments/{payment}/receipt', [PrintController::class, 'paymentReceipt'])->name('payment-receipt');
     Route::get('report', [PrintController::class, 'report'])->name('report');
+    Route::get('barcode-labels', [PrintController::class, 'barcodeLabels'])->name('barcode-labels');
     Route::get('customers/{customer}/statement', [PrintController::class, 'customerStatement'])->name('customer-statement');
 });

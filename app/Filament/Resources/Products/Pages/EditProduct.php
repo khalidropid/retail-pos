@@ -20,6 +20,6 @@ class EditProduct extends EditRecord
 
     protected function getHeaderActions(): array
     {
-        return [ViewAction::make()];
+        return [ProductResource::printLabelsAction(), ViewAction::make()];
     }
 }

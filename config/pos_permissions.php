@@ -40,6 +40,7 @@ return [
             'products.update_price' => 'تعديل أسعار المنتجات',
             'products.delete' => 'حذف منتج',
             'products.view_cost' => 'مشاهدة التكلفة',
+            'products.regenerate_barcode' => 'إعادة توليد الباركود',
             'catalog.manage' => 'إدارة التصنيفات والعلامات والوحدات',
         ],
         'المخزون' => [

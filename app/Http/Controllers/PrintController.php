@@ -9,7 +9,9 @@ use App\Filament\Pages\Reports\PurchaseReports;
 use App\Filament\Pages\Reports\SalesReports;
 use App\Models\Customer;
 use App\Models\CustomerPayment;
+use App\Models\Product;
 use App\Models\Sale;
+use App\Services\BarcodeService;
 use App\Services\CustomerStatementService;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
@@ -26,6 +28,48 @@ class PrintController extends Controller
         $sale->load(['items', 'customer', 'user', 'paymentMethod']);
 
         return view('print.sale-receipt', ['sale' => $sale]);
+    }
+
+    public function barcodeLabels(Request $request, BarcodeService $barcodes): View
+    {
+        $sizes = config('barcode.label_sizes');
+        $data = $request->validate([
+            'ids' => ['required', 'array', 'min:1', 'max:200'],
+            'ids.*' => ['integer'],
+            'copies' => ['nullable', 'integer', 'min:1', 'max:500'],
+            'size' => ['nullable', 'string', 'in:'.implode(',', array_keys($sizes))],
+            'show_price' => ['nullable', 'boolean'],
+        ]);
+
+        $products = Product::query()->whereIn('id', $data['ids'])->orderBy('name')->get();
+        abort_if($products->isEmpty(), 404);
+        foreach ($products as $product) {
+            Gate::authorize('view', $product);
+        }
+
+        $copies = (int) ($data['copies'] ?? 1);
+        abort_if($copies * $products->count() > config('barcode.max_labels'), 422, 'عدد الملصقات كبير جدًا.');
+
+        $sizeKey = $data['size'] ?? (string) settings('barcode.label_size', '50x25');
+        $size = $sizes[$sizeKey] ?? $sizes['50x25'];
+
+        $labels = [];
+        foreach ($products as $product) {
+            if (blank($product->barcode)) {
+                continue;
+            }
+            $svg = $barcodes->svg($product->barcode, $size['width'] >= 50 ? 1.6 : 1.3, $size['height'] * 1.4);
+            for ($i = 0; $i < $copies; $i++) {
+                $labels[] = ['product' => $product, 'svg' => $svg];
+            }
+        }
+
+        return view('print.barcode-labels', [
+            'labels' => $labels,
+            'size' => $size,
+            'missing' => $products->filter(fn ($p) => blank($p->barcode))->pluck('name'),
+            'showPrice' => array_key_exists('show_price', $data) ? (bool) $data['show_price'] : (bool) settings('barcode.show_price', true),
+        ]);
     }
 
     public function paymentReceipt(CustomerPayment $payment): View

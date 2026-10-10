@@ -43,6 +43,7 @@ class AuditLog extends Model
             'deleted' => 'حذف',
             'restored' => 'استعادة',
             'price_changed' => 'تغيير سعر',
+            'barcode_generated' => 'توليد باركود',
             'stock_adjusted' => 'تسوية مخزون',
             'stock_counted' => 'اعتماد جرد',
             'sale_completed' => 'عملية بيع',

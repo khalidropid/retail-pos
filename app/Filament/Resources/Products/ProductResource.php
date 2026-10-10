@@ -10,24 +10,31 @@ use App\Filament\Resources\Products\RelationManagers\StockMovementsRelationManag
 use App\Filament\Support\Domain;
 use App\Models\Product;
 use App\Models\Unit;
+use App\Services\BarcodeService;
 use App\Services\InventoryService;
 use App\Services\ProductService;
 use App\Support\Money;
 use BackedEnum;
 use Filament\Actions\Action;
+use Filament\Actions\BulkAction;
 use Filament\Actions\EditAction;
 use Filament\Actions\RestoreAction;
 use Filament\Actions\ViewAction;
 use Filament\Forms\Components\FileUpload;
 use Filament\Forms\Components\Select;
+use Filament\Forms\Components\Select as FormSelect;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
+use Filament\Forms\Components\Toggle as FormToggle;
 use Filament\Infolists\Components\IconEntry;
 use Filament\Infolists\Components\ImageEntry;
 use Filament\Infolists\Components\TextEntry;
+use Filament\Notifications\Notification;
 use Filament\Resources\Resource;
 use Filament\Schemas\Components\Section;
+use Filament\Schemas\Components\Utilities\Get;
+use Filament\Schemas\Components\Utilities\Set;
 use Filament\Schemas\Schema;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Columns\IconColumn;
@@ -40,6 +47,8 @@ use Filament\Tables\Filters\TrashedFilter;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\SoftDeletingScope;
+use Illuminate\Support\Collection;
+use Illuminate\Support\HtmlString;
 use Illuminate\Support\Str;
 use UnitEnum;
 
@@ -64,6 +73,42 @@ class ProductResource extends Resource
         return auth()->user()?->can('products.view_cost') ?? false;
     }
 
+    /** Print-labels action: shared by the product page and the list. */
+    public static function printLabelsAction(): Action
+    {
+        return Action::make('printLabels')->label('طباعة ملصقات الباركود')->icon(Heroicon::OutlinedPrinter)->color('gray')
+            ->visible(fn (Product $record) => filled($record->barcode))
+            ->schema(self::labelOptionsSchema())
+            ->action(fn (Product $record, array $data, $livewire) => self::openLabels([$record->id], $data, $livewire));
+    }
+
+    /** @return array<int, mixed> */
+    public static function labelOptionsSchema(): array
+    {
+        return [
+            TextInput::make('copies')->label('عدد النسخ لكل منتج')->integer()->minValue(1)->maxValue(500)->default(1)->required(),
+            FormSelect::make('size')->label('مقاس الملصق')->required()
+                ->options(collect(config('barcode.label_sizes'))->map(fn ($s) => $s['label']))
+                ->default(fn () => settings('barcode.label_size', '50x25')),
+            FormToggle::make('show_price')->label('إظهار السعر')->default(fn () => (bool) settings('barcode.show_price', true)),
+        ];
+    }
+
+    public static function openLabels(array $ids, array $data, $livewire): void
+    {
+        $url = route('print.barcode-labels', [
+            'ids' => array_values($ids), 'copies' => (int) $data['copies'], 'size' => $data['size'], 'show_price' => $data['show_price'] ? 1 : 0,
+        ]);
+        $livewire->js('window.open('.json_encode($url).', "_blank")');
+    }
+
+    public static function generateBarcodeAction(): Action
+    {
+        return Action::make('generateBarcode')->label('توليد باركود')->icon(Heroicon::OutlinedSparkles)->color('success')
+            ->visible(fn (Product $record) => blank($record->barcode) && auth()->user()->can('products.update'))
+            ->action(fn (Product $record) => Domain::run(fn () => app(BarcodeService::class)->assign($record, auth()->user()), 'تم توليد الباركود'));
+    }
+
     public static function form(Schema $schema): Schema
     {
         $canPrice = fn (string $operation) => $operation === 'create' || auth()->user()?->can('products.update_price');
@@ -74,9 +119,28 @@ class ProductResource extends Resource
                 TextInput::make('sku')->label('رمز المنتج SKU')->required()->maxLength(64)
                     ->default(fn () => 'SKU-'.Str::upper(Str::random(8)))
                     ->unique(table: 'products', column: 'sku', ignoreRecord: true, modifyRuleUsing: fn ($rule) => $rule->whereNull('deleted_at')),
-                TextInput::make('barcode')->label('الباركود')->maxLength(64)
-                    ->helperText('امسح الباركود بالقارئ مباشرة في هذا الحقل')
-                    ->unique(table: 'products', column: 'barcode', ignoreRecord: true, modifyRuleUsing: fn ($rule) => $rule->whereNull('deleted_at')),
+                TextInput::make('barcode')->label('الباركود')->maxLength(64)->live(onBlur: true)
+                    ->helperText('امسح باركود الشركة المصنعة بالقارئ، أو اضغط زر التوليد لإنشاء باركود داخلي')
+                    ->regex(BarcodeService::MANUAL_PATTERN)
+                    ->validationMessages(['regex' => 'الباركود يقبل الأرقام والحروف الإنجليزية و - . / فقط (4 إلى 64 خانة).'])
+                    ->disabled(fn (?Product $record) => filled($record?->barcode) && ! auth()->user()?->can('products.regenerate_barcode'))
+                    ->dehydrated(fn (?Product $record) => blank($record?->barcode) || auth()->user()?->can('products.regenerate_barcode'))
+                    ->unique(table: 'products', column: 'barcode', ignoreRecord: true, modifyRuleUsing: fn ($rule) => $rule->whereNull('deleted_at'))
+                    ->suffixAction(
+                        Action::make('generateBarcode')->label('توليد باركود')->tooltip('توليد باركود داخلي فريد')
+                            ->icon(Heroicon::OutlinedSparkles)
+                            ->visible(fn (Get $get) => blank($get('barcode')) || auth()->user()?->can('products.regenerate_barcode'))
+                            ->requiresConfirmation(fn (Get $get) => filled($get('barcode')))
+                            ->modalDescription('سيُستبدل الباركود الحالي بباركود جديد، وستحتاج لإعادة طباعة الملصقات.')
+                            ->action(fn (Set $set) => $set('barcode', app(BarcodeService::class)->nextValue())),
+                    ),
+                TextEntry::make('barcode_preview')->hiddenLabel()->columnSpanFull()
+                    ->state(fn (Get $get) => filled($get('barcode')) && preg_match(BarcodeService::MANUAL_PATTERN, (string) $get('barcode'))
+                        ? new HtmlString('<div style="background:#fff;padding:6px;display:inline-block;border-radius:6px">'
+                            .app(BarcodeService::class)->svg((string) $get('barcode'), 1.6, 45)
+                            .'<div style="text-align:center;font-family:monospace;color:#000;direction:ltr">'.e($get('barcode')).'</div></div>')
+                        : 'لا يوجد باركود بعد')
+                    ->html(),
                 Select::make('category_id')->label('التصنيف')->relationship('category', 'name')->searchable()->preload(),
                 Select::make('brand_id')->label('العلامة التجارية')->relationship('brand', 'name')->searchable()->preload(),
                 Select::make('unit_id')->label('الوحدة')->relationship('unit', 'name')->required()->preload()
@@ -114,7 +178,14 @@ class ProductResource extends Resource
             Section::make('المنتج')->columnSpan(2)->columns(3)->schema([
                 TextEntry::make('name')->label('الاسم')->columnSpanFull()->weight('bold'),
                 TextEntry::make('sku')->label('SKU')->copyable(),
-                TextEntry::make('barcode')->label('الباركود')->placeholder('-')->copyable(),
+                TextEntry::make('barcode')->label('الباركود')->placeholder('-')->copyable()
+                    ->helperText(fn (Product $record) => match ($record->barcode_source) {
+                        'internal' => 'باركود داخلي (Code 128)', 'manufacturer' => 'باركود الشركة المصنعة', default => null,
+                    }),
+                TextEntry::make('barcode_graphic')->hiddenLabel()->columnSpanFull()->html()
+                    ->visible(fn (Product $record) => filled($record->barcode))
+                    ->state(fn (Product $record) => new HtmlString('<div style="background:#fff;padding:6px;display:inline-block;border-radius:6px">'
+                        .app(BarcodeService::class)->svg($record->barcode, 1.6, 45).'</div>')),
                 TextEntry::make('unit.name')->label('الوحدة'),
                 TextEntry::make('category.name')->label('التصنيف')->placeholder('-'),
                 TextEntry::make('brand.name')->label('العلامة التجارية')->placeholder('-'),
@@ -165,9 +236,28 @@ class ProductResource extends Resource
                 Filter::make('low_stock')->label('مخزون منخفض')->toggle()->query(fn (Builder $q) => $q->lowStock()),
                 TrashedFilter::make(),
             ])
+            ->toolbarActions([
+                BulkAction::make('printLabels')->label('طباعة ملصقات الباركود')->icon(Heroicon::OutlinedPrinter)
+                    ->schema(self::labelOptionsSchema())
+                    ->action(fn (Collection $records, array $data, $livewire) => self::openLabels($records->pluck('id')->all(), $data, $livewire))
+                    ->deselectRecordsAfterCompletion(),
+                BulkAction::make('generateBarcodes')->label('توليد باركود للمنتجات بدون باركود')->icon(Heroicon::OutlinedSparkles)
+                    ->visible(fn () => auth()->user()->can('products.update'))
+                    ->requiresConfirmation()
+                    ->action(function (Collection $records) {
+                        $count = 0;
+                        foreach ($records->filter(fn (Product $p) => blank($p->barcode)) as $product) {
+                            Domain::run(fn () => app(BarcodeService::class)->assign($product, auth()->user()));
+                            $count++;
+                        }
+                        Notification::make()->success()->title("تم توليد {$count} باركود")->send();
+                    })
+                    ->deselectRecordsAfterCompletion(),
+            ])
             ->recordActions([
                 ViewAction::make(),
                 EditAction::make(),
+                self::printLabelsAction(),
                 Action::make('adjust')->label('تسوية')->icon(Heroicon::OutlinedAdjustmentsHorizontal)->color('warning')
                     ->visible(fn (Product $record) => $record->track_stock && auth()->user()->can('inventory.adjust'))
                     ->schema([

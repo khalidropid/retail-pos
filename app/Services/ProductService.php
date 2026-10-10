@@ -57,6 +57,10 @@ class ProductService
             $product = Product::query()->lockForUpdate()->findOrFail($product->id);
             $product->fill($data);
 
+            if ($product->isDirty('barcode') && filled($product->getOriginal('barcode')) && ! $actor->can('products.regenerate_barcode')) {
+                throw new AuthorizationException('ليس لديك صلاحية تغيير باركود موجود. الملصقات المطبوعة تعتمد عليه.');
+            }
+
             $priceChanges = array_intersect(self::PRICE_FIELDS, array_keys($product->getDirty()));
             if ($priceChanges !== [] && ! $actor->can('products.update_price')) {
                 throw new AuthorizationException('ليس لديك صلاحية تعديل أسعار المنتجات.');

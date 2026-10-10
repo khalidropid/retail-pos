@@ -15,11 +15,11 @@ return [
             'store.address' => null,
             'store.email' => null,
             'store.tax_number' => null,
-            'app.timezone' => 'Asia/Baghdad',
+            'app.timezone' => 'Asia/Aden',
         ],
         'currency' => [
-            'currency.code' => 'IQD',
-            'currency.symbol' => 'د.ع',
+            'currency.code' => 'YER',
+            'currency.symbol' => 'ر.ي',
             'currency.decimals' => 0,
         ],
         'tax' => [
@@ -58,6 +58,13 @@ return [
             'credit.default_limit' => '0',
             'credit.allow_override' => true,
             'credit.block_on_overdue' => false,
+        ],
+        'barcode' => [
+            'barcode.prefix' => '20',
+            'barcode.label_size' => '50x25',
+            'barcode.show_price' => true,
+            'barcode.show_sku' => true,
+            'barcode.show_store_name' => false,
         ],
         'numbering' => [
             'numbering.sale' => 'INV-',

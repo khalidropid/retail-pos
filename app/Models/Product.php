@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Services\BarcodeService;
 use App\Support\ArabicText;
 use App\Support\Money;
 use Illuminate\Database\Eloquent\Builder;
@@ -56,6 +57,14 @@ class Product extends Model
             $product->name_normalized = ArabicText::normalize($product->name);
             $product->sku = trim((string) $product->sku);
             $product->barcode = filled($product->barcode) ? trim((string) $product->barcode) : null;
+            if ($product->isDirty('barcode')) {
+                $product->barcode_source = match (true) {
+                    $product->barcode === null => null,
+                    BarcodeService::isValidInternal($product->barcode)
+                        && str_starts_with($product->barcode, (string) settings('barcode.prefix', '20')) => 'internal',
+                    default => 'manufacturer',
+                };
+            }
         });
     }
 
