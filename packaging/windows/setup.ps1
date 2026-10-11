@@ -173,6 +173,7 @@ try {
         if ($r.Code -ne 0) { Write-Log "Database creation failed: $($r.Err -replace [regex]::Escape($appPassword), '******')"; exit 12 }
 
         # .env from the template. Literal (non-regex) replacement; secrets are never logged.
+        # Windows paths go in SINGLE quotes: dotenv treats backslashes in double quotes as escapes.
         $keyBytes = New-Object byte[] 32
         [System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($keyBytes)
         $appKey = 'base64:' + [Convert]::ToBase64String($keyBytes)
@@ -180,10 +181,10 @@ try {
         $content = $content.Replace('__APP_KEY__', $appKey)
         $content = $content.Replace('__DB_PORT__', "$port")
         $content = $content.Replace('__DB_PASSWORD__', $appPassword)
-        $content = $content.Replace('__BACKUP_DIR__', '"' + (Join-Path $DataDir 'backups') + '"')
-        $content = $content.Replace('__PG_BIN__pg_dump__EXE__', '"' + (Join-Path $PgBin 'pg_dump.exe') + '"')
-        $content = $content.Replace('__PG_BIN__pg_restore__EXE__', '"' + (Join-Path $PgBin 'pg_restore.exe') + '"')
-        $content = $content.Replace('__PG_BIN__psql__EXE__', '"' + (Join-Path $PgBin 'psql.exe') + '"')
+        $content = $content.Replace('__BACKUP_DIR__', "'" + (Join-Path $DataDir 'backups') + "'")
+        $content = $content.Replace('__PG_BIN__pg_dump__EXE__', "'" + (Join-Path $PgBin 'pg_dump.exe') + "'")
+        $content = $content.Replace('__PG_BIN__pg_restore__EXE__', "'" + (Join-Path $PgBin 'pg_restore.exe') + "'")
+        $content = $content.Replace('__PG_BIN__psql__EXE__', "'" + (Join-Path $PgBin 'psql.exe') + "'")
         [System.IO.File]::WriteAllText($EnvFile, $content, (New-Object System.Text.UTF8Encoding $false))
         Set-Acl-Restricted $EnvFile @('*S-1-5-18:F', '*S-1-5-32-544:F', '*S-1-5-32-545:R')
         Write-Log ".env created (port $port)."

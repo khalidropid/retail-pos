@@ -175,11 +175,13 @@ php artisan test
 أدوات PostgreSQL للعميل: `pg_dump` و`pg_restore` و`psql`، بنفس الإصدار الرئيسي للخادم أو أحدث. إذا لم تكن في PATH (خصوصًا على Windows) حدّد مساراتها الكاملة:
 
 ```dotenv
-PG_DUMP_PATH="C:\Program Files\PostgreSQL\17\bin\pg_dump.exe"
-PG_RESTORE_PATH="C:\Program Files\PostgreSQL\17\bin\pg_restore.exe"
-PSQL_PATH="C:\Program Files\PostgreSQL\17\bin\psql.exe"
-BACKUP_PATH="D:\RetailPOS-Backups"
+PG_DUMP_PATH='C:\Program Files\PostgreSQL\17\bin\pg_dump.exe'
+PG_RESTORE_PATH='C:\Program Files\PostgreSQL\17\bin\pg_restore.exe'
+PSQL_PATH='C:\Program Files\PostgreSQL\17\bin\psql.exe'
+BACKUP_PATH='D:\RetailPOS-Backups'
 ```
+
+ضع مسارات Windows بين **علامات اقتباس مفردة** `'...'` (علامات الاقتباس المزدوجة تجعل `\` رمز هروب فيفشل قراءة `.env`).
 
 كلمة مرور قاعدة البيانات تُمرَّر للأدوات عبر متغير البيئة `PGPASSWORD`، ولا تظهر في سطر الأوامر أو السجلات.
 

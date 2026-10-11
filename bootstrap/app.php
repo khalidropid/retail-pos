@@ -51,6 +51,12 @@ $dataDir = $_SERVER['RETAILPOS_DATA_DIR'] ?? $_ENV['RETAILPOS_DATA_DIR'] ?? gete
 if ($dataDir) {
     $dataDir = rtrim($dataDir, '/\\');
     $app->useEnvironmentPath($dataDir);
+
+    // Laravel only treats paths starting with / or \ as absolute; on Windows the
+    // data dir starts with a drive letter (C:\...), so register that prefix too.
+    if (preg_match('/^[A-Za-z]:[\\\\\/]/', $dataDir)) {
+        $app->addAbsoluteCachePathPrefix(substr($dataDir, 0, 3));
+    }
     $app->useStoragePath($dataDir.DIRECTORY_SEPARATOR.'storage');
 
     // Self-heal the writable skeleton (first launch, or a folder removed by hand).
