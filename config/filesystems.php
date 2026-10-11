@@ -33,7 +33,8 @@ return [
         'local' => [
             'driver' => 'local',
             'root' => storage_path('app/private'),
-            'serve' => true,
+            // Private files (initial admin password, backups) are never served over HTTP.
+            'serve' => false,
             'throw' => false,
             'report' => false,
         ],
@@ -43,6 +44,9 @@ return [
             'root' => storage_path('app/public'),
             'url' => rtrim(env('APP_URL', 'http://localhost'), '/').'/storage',
             'visibility' => 'public',
+            // Desktop builds cannot rely on the public/storage symlink (Windows needs
+            // admin rights for symlinks), so Laravel serves the public disk itself.
+            'serve' => (bool) env('PUBLIC_DISK_SERVE', false),
             'throw' => false,
             'report' => false,
         ],

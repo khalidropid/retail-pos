@@ -11,7 +11,7 @@ use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
 use Illuminate\Http\Request;
 
-return Application::configure(basePath: dirname(__DIR__))
+$app = Application::configure(basePath: dirname(__DIR__))
     ->withRouting(
         web: __DIR__.'/../routes/web.php',
         api: __DIR__.'/../routes/api.php',
@@ -40,3 +40,29 @@ return Application::configure(basePath: dirname(__DIR__))
             }
         });
     })->create();
+
+/*
+| Desktop (Windows) installation: the code lives read-only under Program
+| Files, while .env, storage (logs, sessions, cache, uploads, backups) and
+| the bootstrap caches live in the data directory the launcher/installer
+| passes in RETAILPOS_DATA_DIR. Without it nothing changes.
+*/
+$dataDir = $_SERVER['RETAILPOS_DATA_DIR'] ?? $_ENV['RETAILPOS_DATA_DIR'] ?? getenv('RETAILPOS_DATA_DIR') ?: null;
+if ($dataDir) {
+    $dataDir = rtrim($dataDir, '/\\');
+    $app->useEnvironmentPath($dataDir);
+    $app->useStoragePath($dataDir.DIRECTORY_SEPARATOR.'storage');
+
+    foreach ([
+        'APP_SERVICES_CACHE' => 'services.php', 'APP_PACKAGES_CACHE' => 'packages.php',
+        'APP_CONFIG_CACHE' => 'config.php', 'APP_ROUTES_CACHE' => 'routes-v7.php', 'APP_EVENTS_CACHE' => 'events.php',
+    ] as $key => $file) {
+        if (getenv($key) === false && ! isset($_SERVER[$key])) {
+            $path = $dataDir.DIRECTORY_SEPARATOR.'cache'.DIRECTORY_SEPARATOR.$file;
+            putenv("{$key}={$path}");
+            $_SERVER[$key] = $_ENV[$key] = $path;
+        }
+    }
+}
+
+return $app;

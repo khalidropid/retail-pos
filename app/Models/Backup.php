@@ -11,6 +11,7 @@ class Backup extends Model
         'manual' => 'يدوية',
         'scheduled' => 'مجدولة',
         'pre_restore' => 'نسخة أمان قبل الاستعادة',
+        'pre_upgrade' => 'نسخة أمان قبل التحديث',
         'uploaded' => 'مرفوعة',
     ];
 

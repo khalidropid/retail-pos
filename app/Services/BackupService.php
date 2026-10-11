@@ -12,6 +12,7 @@ use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Process;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use Spatie\Permission\PermissionRegistrar;
 use Throwable;
@@ -42,7 +43,7 @@ class BackupService
         'suppliers', 'purchases', 'cash_movements', 'expenses', 'audit_logs',
     ];
 
-    private const NAME_PATTERN = '/^retailpos-\d{8}-\d{6}-(manual|scheduled|pre_restore|uploaded)(-[a-z0-9]{6})?\.dump$/';
+    private const NAME_PATTERN = '/^retailpos-\d{8}-\d{6}-(manual|scheduled|pre_restore|pre_upgrade|uploaded)(-[a-z0-9]{6})?\.dump$/';
 
     public function __construct(private AuditLogger $audit) {}
 
@@ -72,10 +73,17 @@ class BackupService
         $filename = 'retailpos-'.now()->format('Ymd-His').'-'.$type.'-'.Str::lower(Str::random(6)).'.dump';
         $path = $dir.DIRECTORY_SEPARATOR.$filename;
 
-        $backup = Backup::query()->create([
+        // An install upgraded from a version older than the backups table must
+        // still be able to take its pre-upgrade backup: then the record stays in
+        // memory and the file is registered by syncFromDisk() after migrating.
+        $backup = new Backup([
             'filename' => $filename, 'type' => $type, 'status' => 'running',
             'created_by' => $user?->id, 'started_at' => now(),
         ]);
+        $persist = Schema::connection($backup->getConnectionName())->hasTable('backups');
+        if ($persist) {
+            $backup->save();
+        }
 
         $db = $this->connectionConfig();
         $result = Process::env(['PGPASSWORD' => (string) ($db['password'] ?? '')])
@@ -91,7 +99,10 @@ class BackupService
         if (! $result->successful() || ! is_file($path) || filesize($path) === 0) {
             @unlink($path);
             $error = $this->cleanError($result->errorOutput() ?: $result->output()) ?: 'pg_dump لم ينتج ملفًا.';
-            $backup->update(['status' => 'failed', 'error' => $error, 'finished_at' => now()]);
+            $backup->fill(['status' => 'failed', 'error' => $error, 'finished_at' => now()]);
+            if ($persist) {
+                $backup->save();
+            }
             Log::error('Database backup failed', ['backup' => $filename, 'error' => $error]);
             $this->audit->log('backup_failed', $backup, null, ['filename' => $filename], $error, userId: $user?->id);
 
@@ -111,7 +122,10 @@ class BackupService
             $updates += $this->archiveFiles(Str::beforeLast($filename, '.dump'));
         }
 
-        $backup->update($updates);
+        $backup->fill($updates);
+        if ($persist) {
+            $backup->save();
+        }
         $this->audit->log('backup_created', $backup, null, [
             'filename' => $filename, 'type' => $type, 'size' => $backup->size, 'files_archive' => $backup->files_archive,
         ], userId: $user?->id);

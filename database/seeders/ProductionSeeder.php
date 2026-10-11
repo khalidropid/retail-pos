@@ -13,6 +13,11 @@ use Illuminate\Support\Str;
  */
 class ProductionSeeder extends Seeder
 {
+    /** Set when this run created the admin (read by desktop:setup). */
+    public static ?string $createdEmail = null;
+
+    public static ?string $createdPassword = null;
+
     public function run(): void
     {
         $this->call([
@@ -37,6 +42,9 @@ class ProductionSeeder extends Seeder
             'password' => $password,
         ]);
         $admin->assignRole('admin');
+
+        self::$createdEmail = $admin->email;
+        self::$createdPassword = $password;
 
         $this->command?->warn('Admin account created: '.$admin->email);
         $this->command?->warn('Temporary password (shown once, change it after login): '.$password);
