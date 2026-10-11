@@ -28,3 +28,9 @@ _ide_helper.php
 Homestead.json
 Homestead.yaml
 Thumbs.db
+
+# Windows packaging downloads and outputs
+/packaging/windows/.cache
+/build
+/dist
+/desktop/node_modules

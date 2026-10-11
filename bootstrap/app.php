@@ -53,6 +53,17 @@ if ($dataDir) {
     $app->useEnvironmentPath($dataDir);
     $app->useStoragePath($dataDir.DIRECTORY_SEPARATOR.'storage');
 
+    // Self-heal the writable skeleton (first launch, or a folder removed by hand).
+    foreach (['app/public', 'app/private', 'framework/cache/data', 'framework/sessions', 'framework/views', 'logs'] as $dir) {
+        $full = $dataDir.DIRECTORY_SEPARATOR.'storage'.DIRECTORY_SEPARATOR.str_replace('/', DIRECTORY_SEPARATOR, $dir);
+        if (! is_dir($full)) {
+            @mkdir($full, 0775, true);
+        }
+    }
+    if (! is_dir($dataDir.DIRECTORY_SEPARATOR.'cache')) {
+        @mkdir($dataDir.DIRECTORY_SEPARATOR.'cache', 0775, true);
+    }
+
     foreach ([
         'APP_SERVICES_CACHE' => 'services.php', 'APP_PACKAGES_CACHE' => 'packages.php',
         'APP_CONFIG_CACHE' => 'config.php', 'APP_ROUTES_CACHE' => 'routes-v7.php', 'APP_EVENTS_CACHE' => 'events.php',
