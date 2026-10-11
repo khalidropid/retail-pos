@@ -226,6 +226,20 @@ BACKUP_PATH='D:\RetailPOS-Backups'
 RUN_BACKUP_INTEGRATION=1 php artisan test --filter=BackupIntegrationTest
 ```
 
+## نسخة سطح المكتب لـ Windows
+
+مثبّت واحد `RetailPOS-Setup.exe` (Windows 10/11 x64) يحتوي كل ما يلزم: Electron وPHP 8.4 وPostgreSQL 17 والتطبيق في وضع الإنتاج. يعمل على `127.0.0.1` فقط، وتُحفظ البيانات (قاعدة البيانات والنسخ و`.env`) في `C:\ProgramData\RetailPOS` خارج مجلد التثبيت. لا يحذف التحديث ولا إلغاء التثبيت قاعدة البيانات، ويُنشأ قبل أي ترحيل في التحديث نسخة أمان (`pre_upgrade`) يتم التحقق منها.
+
+البناء (على Linux، من الكود الملتزَم في git):
+
+```bash
+packaging/windows/build.sh
+```
+
+الناتج: `dist/RetailPOS-Setup.exe` و`dist/RetailPOS-Setup.exe.sha256`. نسخ المكوّنات وبصماتها مثبّتة في `packaging/windows/versions.env`.
+
+دليل النقل والتثبيت والإعداد الأول والإبلاغ عن الأخطاء، مع قائمة اختبار على Windows: [packaging/windows/دليل-التثبيت-على-Windows.md](packaging/windows/دليل-التثبيت-على-Windows.md).
+
 ## الطباعة
 
 - إيصال حراري 58/80 مم: `/print/sales/{id}/receipt`
