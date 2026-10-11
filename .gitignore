@@ -34,3 +34,4 @@ Thumbs.db
 /build
 /dist
 /desktop/node_modules
+/packaging/windows/__pycache__

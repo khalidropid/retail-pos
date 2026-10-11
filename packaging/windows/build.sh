@@ -3,7 +3,7 @@
 # Builds dist/RetailPOS-Setup.exe (Windows 10/11 x64 installer) on Linux.
 #
 # Requirements on the build machine: git, php 8.4 + composer, node/npm (with the
-# project's node_modules installed), curl, 7z, makensis (NSIS 3), sha256sum.
+# project's node_modules installed), curl, 7z, python3, makensis (NSIS 3), sha256sum.
 #
 #   packaging/windows/build.sh            # uses committed code (git HEAD)
 #
@@ -30,7 +30,7 @@ VERSION="${VERSION:-$(node -p "require('$ROOT/desktop/package.json').version")}"
 
 say() { printf '\n==> %s\n' "$*"; }
 need() { command -v "$1" >/dev/null || { echo "Missing tool: $1" >&2; exit 1; }; }
-for t in git php composer npm curl 7z makensis sha256sum; do need "$t"; done
+for t in git php composer npm curl 7z makensis sha256sum python3; do need "$t"; done
 
 if [ -n "$(git -C "$ROOT" status --porcelain -- . ':!dist' ':!build')" ]; then
     echo "WARNING: uncommitted changes are NOT included (the installer is built from git HEAD)." >&2
@@ -51,10 +51,18 @@ fetch() { # url file sha256
 ELECTRON_ZIP="electron-v${ELECTRON_VERSION}-win32-x64.zip"
 PHP_ZIP="php-${PHP_VERSION}-nts-Win32-vs17-x64.zip"
 PG_ZIP="postgresql-${PG_VERSION}-windows-x64-binaries.zip"
+PG_DIR="$CACHE/pgsql-${PG_VERSION}"
 
 fetch "https://github.com/electron/electron/releases/download/v${ELECTRON_VERSION}/${ELECTRON_ZIP}" "$ELECTRON_ZIP" "$ELECTRON_SHA256"
 fetch "https://downloads.php.net/~windows/releases/${PHP_ZIP}" "$PHP_ZIP" "$PHP_SHA256"
-fetch "https://get.enterprisedb.com/postgresql/${PG_ZIP}" "$PG_ZIP" "$PG_SHA256"
+# PostgreSQL: only bin/lib/share + licenses are pulled out of the official zip
+# (range requests; skips ~275 MB of pgAdmin). Each file is CRC-checked against
+# the zip and the whole set is pinned by a manifest hash.
+if [ ! -d "$PG_DIR" ] || [ "$(python3 "$HERE/fetch-pg.py" --hash "$PG_DIR")" != "$PG_SHA256" ]; then
+    say "Downloading PostgreSQL ${PG_VERSION} binaries (bin/lib/share)"
+    python3 "$HERE/fetch-pg.py" "https://get.enterprisedb.com/postgresql/${PG_ZIP}" "$PG_DIR" >/dev/null
+fi
+[ "$(python3 "$HERE/fetch-pg.py" --hash "$PG_DIR")" = "$PG_SHA256" ] || { echo "Checksum mismatch: PostgreSQL manifest (delete $PG_DIR and retry)" >&2; exit 1; }
 fetch "https://aka.ms/vs/17/release/vc_redist.x64.exe" "vc_redist.x64.exe" "$VCREDIST_SHA256"
 
 rm -rf "$BUILD"
@@ -77,11 +85,7 @@ rm -f "$STAGE/resources/php/phpdbg.exe" "$STAGE/resources/php/php.ini-developmen
 
 # ----------------------------------------------------------- PostgreSQL
 say "PostgreSQL ${PG_VERSION} (binaries only)"
-7z x -y -bso0 -bsp0 "$CACHE/$PG_ZIP" -o"$BUILD/pg" >/dev/null
-mkdir -p "$STAGE/resources/pgsql"
-for d in bin lib share; do cp -r "$BUILD/pg/pgsql/$d" "$STAGE/resources/pgsql/"; done
-cp "$BUILD/pg/pgsql/"*.txt "$STAGE/resources/pgsql/" 2>/dev/null || true # license
-rm -rf "$BUILD/pg"
+cp -r "$PG_DIR/pgsql" "$STAGE/resources/pgsql"
 find "$STAGE/resources/pgsql" -name '*.pdb' -delete
 
 # -------------------------------------------------------------- Laravel
