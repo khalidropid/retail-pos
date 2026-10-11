@@ -72,6 +72,10 @@ class DesktopSetup extends Command
 
         Artisan::call('db:seed', ['--class' => ProductionSeeder::class, '--force' => true]);
 
+        // A store PC has no administrator watching backups: new desktop installs start
+        // with the daily backup on. Upgrades never change the store's own choice.
+        app(SettingsService::class)->set('backup.schedule_enabled', true);
+
         if (ProductionSeeder::$createdPassword && ($file = $this->option('credentials-file'))) {
             file_put_contents($file, implode(PHP_EOL, [
                 'RetailPOS - بيانات الدخول الأولى',

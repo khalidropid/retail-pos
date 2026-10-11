@@ -62,11 +62,13 @@ class BackupTest extends TestCase
             if ($fail === $bin) {
                 return Process::result('', "{$bin}: error: connection refused (password=secret)", 1);
             }
+            if ($bin === 'pg_restore' && in_array('--list', $cmd, true)) {
+                file_put_contents(substr($fileArg, 7), "; Archive created\n123; 1259 16400 TABLE public products khalid\n");
+
+                return Process::result();
+            }
             if ($bin === 'pg_dump' || ($bin === 'pg_restore' && $fileArg)) {
                 file_put_contents(substr($fileArg, 7), "PGDMP\x01fake dump TABLE public products");
-            }
-            if ($bin === 'pg_restore' && in_array('--list', $cmd, true)) {
-                return Process::result("; Archive created\n123; 1259 16400 TABLE public products khalid\n");
             }
 
             return Process::result();

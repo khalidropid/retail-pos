@@ -66,11 +66,15 @@ class DesktopSetupIntegrationTest extends TestCase
         $this->assertFileExists($credentials);
         $this->assertStringContainsString('كلمة المرور المؤقتة', file_get_contents($credentials));
         $this->assertSame(0, $db->table('products')->count(), 'no demo data in a real install');
+        $this->assertSame('true', $db->table('settings')->where('key', 'backup.schedule_enabled')->value('value'), 'daily backup on for new installs');
 
         // Business data entered by the store.
         $unit = $db->table('units')->value('id');
         $db->table('products')->insert(['name' => 'منتج حقيقي', 'name_normalized' => 'منتج حقيقي', 'sku' => 'REAL-1', 'unit_id' => $unit,
             'cost_price' => 1, 'sale_price' => 2, 'tax_rate' => 0, 'stock_quantity' => 5, 'created_at' => now(), 'updated_at' => now()]);
+
+        // The store turns the daily backup off; later runs must respect that.
+        $db->table('settings')->where('key', 'backup.schedule_enabled')->update(['value' => 'false']);
 
         // 2) Re-running (same version) changes nothing.
         $this->assertSame(0, Artisan::call('desktop:setup', ['--wait' => 5]));
@@ -86,6 +90,7 @@ class DesktopSetupIntegrationTest extends TestCase
         $this->assertTrue($db->getSchemaBuilder()->hasTable('backups'));
         $this->assertSame('REAL-1', $db->table('products')->value('sku'));
         $this->assertNotEmpty(glob($this->dir.'/retailpos-*-pre_upgrade-*.dump'), 'verified backup taken before migrating');
+        $this->assertSame('false', $db->table('settings')->where('key', 'backup.schedule_enabled')->value('value'), 'store choice kept on upgrade');
     }
 
     public function test_refuses_a_database_with_foreign_tables(): void

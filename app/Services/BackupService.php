@@ -259,11 +259,19 @@ class BackupService
             throw new BusinessException('الملف ليس نسخة احتياطية صالحة من PostgreSQL (صيغة custom).');
         }
 
-        $list = Process::timeout(120)->run([config('backup.pg_restore'), '--list', $path]);
+        // The table of contents goes to a file rather than captured stdout, which is
+        // more dependable for console tools launched from PHP on Windows.
+        $listFile = tempnam(sys_get_temp_dir(), 'pglist');
+        try {
+            $list = Process::timeout(120)->run([config('backup.pg_restore'), '--list', '--file='.$listFile, $path]);
+            $contents = (string) @file_get_contents($listFile) ?: $list->output();
+        } finally {
+            @unlink($listFile);
+        }
         if (! $list->successful()) {
             throw new BusinessException('الملف تالف أو غير متوافق: '.$this->cleanError($list->errorOutput()));
         }
-        if (! str_contains($list->output(), 'TABLE') || ! str_contains($list->output(), 'products')) {
+        if (! str_contains($contents, 'TABLE') || ! str_contains($contents, 'products')) {
             throw new BusinessException('الملف لا يبدو نسخة احتياطية لهذا النظام (لا يحتوي على جداول المتجر).');
         }
     }
