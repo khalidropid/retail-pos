@@ -35,3 +35,4 @@ Thumbs.db
 /dist
 /desktop/node_modules
 /packaging/windows/__pycache__
+.~lock.*#
