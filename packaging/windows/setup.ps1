@@ -147,12 +147,19 @@ try {
         $superFile = Join-Path $DataDir 'secrets\postgres-superuser.txt'
         Set-Content -Path $superFile -Value $superPassword -NoNewline -Encoding ASCII
 
+        # initdb drops Administrator rights on Windows (restricted token), so the
+        # installing user gets temporary access to the password file and pgdata;
+        # both grants are removed right after initdb.
+        $me = [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value
         New-Item -ItemType Directory -Force -Path $PgData | Out-Null
-        Set-Acl-Restricted $PgData @('*S-1-5-18:(OI)(CI)F', '*S-1-5-32-544:(OI)(CI)F', '*S-1-5-20:(OI)(CI)F')
+        Set-Acl-Restricted $PgData @('*S-1-5-18:(OI)(CI)F', '*S-1-5-32-544:(OI)(CI)F', '*S-1-5-20:(OI)(CI)F', "*${me}:(OI)(CI)F")
+        $r = Invoke-Tool 'icacls.exe' @($superFile, '/grant', "*${me}:R")
+        if ($r.Code -ne 0) { Write-Log "icacls failed on password file: $($r.Err)"; exit 10 }
 
         Write-Log 'Initializing PostgreSQL cluster (UTF8, scram-sha-256).'
         $r = Invoke-Tool (Join-Path $PgBin 'initdb.exe') @('-D', $PgData, '-U', 'postgres', "--pwfile=$superFile", '-E', 'UTF8',
-            '--locale=C', '--auth=scram-sha-256', '--data-checksums')
+            '--locale=C', '--auth=scram-sha-256', '--data-checksums') @{ LC_MESSAGES = 'C' }
+        Invoke-Tool 'icacls.exe' @($superFile, '/remove:g', "*$me") | Out-Null
         if ($r.Code -ne 0) { Write-Log "initdb failed: $($r.Err)"; exit 10 }
 
         # Loopback only: PostgreSQL is never reachable from the network.
@@ -160,6 +167,8 @@ try {
             '', '# RetailPOS', "listen_addresses = 'localhost'", "port = $port", "password_encryption = 'scram-sha-256'",
             "log_destination = 'stderr'", 'logging_collector = on', "log_directory = 'log'", 'log_rotation_age = 7d')
         Set-Acl-Restricted $PgData @('*S-1-5-18:(OI)(CI)F', '*S-1-5-32-544:(OI)(CI)F', '*S-1-5-20:(OI)(CI)F') -Recurse
+        $r = Invoke-Tool 'icacls.exe' @($PgData, '/remove:g', "*$me", '/T')
+        if ($r.Code -ne 0) { Write-Log "icacls warning (removing temporary pgdata access): $($r.Err)" }
 
         Register-PgService $port
 
