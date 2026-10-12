@@ -186,9 +186,20 @@ try {
         Add-Content -Path (Join-Path $PgData 'postgresql.conf') -Encoding ASCII -Value @(
             '', '# RetailPOS', "listen_addresses = 'localhost'", "port = $port", "password_encryption = 'scram-sha-256'",
             "log_destination = 'stderr'", 'logging_collector = on', "log_directory = 'log'", 'log_rotation_age = 7d')
-        Set-Acl-Restricted $PgData @('*S-1-5-18:(OI)(CI)F', '*S-1-5-32-544:(OI)(CI)F', '*S-1-5-20:(OI)(CI)F') -Recurse
-        $r = Invoke-Tool 'icacls.exe' @($PgData, '/remove:g', "*$me", '/T')
-        if ($r.Code -ne 0) { Write-Log "icacls warning (removing temporary pgdata access): $($r.Err)" }
+        # Files created by initdb inherit pgdata's ACL (SYSTEM, Administrators, NetworkService,
+        # installing user). Removing the user from the folder propagates to the files; no
+        # per-file ACL rewriting (that left postgresql.conf unreadable for the service).
+        $r = Invoke-Tool 'icacls.exe' @($PgData, '/remove:g', "*$me")
+        if ($r.Code -ne 0) { Write-Log "icacls warning (removing temporary pgdata access): $($r.Out) $($r.Err)" }
+        $conf = Invoke-Tool 'icacls.exe' @((Join-Path $PgData 'postgresql.conf'))
+        Write-Log "postgresql.conf ACL: $($conf.Out -replace '\s+', ' ')"
+        $nsAccess = (Get-Acl (Join-Path $PgData 'postgresql.conf')).Access | Where-Object {
+            $_.AccessControlType -eq 'Allow' -and
+            $_.IdentityReference.Translate([System.Security.Principal.SecurityIdentifier]).Value -eq 'S-1-5-20' }
+        if (-not $nsAccess) {
+            Write-Log 'NetworkService has no access to postgresql.conf; not starting the service.'
+            exit 11
+        }
 
         Register-PgService $port
 
