@@ -100,6 +100,23 @@ function Get-EnvValue([string]$Key) {
     return ($line -split '=', 2)[1].Trim().Trim('"')
 }
 
+function Write-PgDiagnostics {
+    # Why PostgreSQL did not start: Windows event log, PostgreSQL's own log, service config.
+    try {
+        Get-WinEvent -FilterHashtable @{ LogName = 'Application'; StartTime = (Get-Date).AddMinutes(-15) } -ErrorAction Stop |
+            Where-Object { $_.ProviderName -match 'PostgreSQL|pg_ctl' -or $_.Message -match 'postgres|pg_ctl' } |
+            Select-Object -First 15 | ForEach-Object { Write-Log "EVENT [$($_.ProviderName)] $($_.Message)" }
+    } catch { Write-Log "No matching Application events ($($_.Exception.Message))." }
+    try {
+        Get-WinEvent -FilterHashtable @{ LogName = 'System'; ProviderName = 'Service Control Manager'; StartTime = (Get-Date).AddMinutes(-15) } -ErrorAction Stop |
+            Select-Object -First 5 | ForEach-Object { Write-Log "SCM: $($_.Message)" }
+    } catch { }
+    $pgLog = Get-ChildItem (Join-Path $PgData 'log') -File -ErrorAction SilentlyContinue | Sort-Object LastWriteTime | Select-Object -Last 1
+    if ($pgLog) { Get-Content $pgLog.FullName -Tail 40 | ForEach-Object { Write-Log "PGLOG $_" } }
+    $r = Invoke-Tool 'sc.exe' @('qc', $ServiceName)
+    Write-Log "sc qc: $($r.Out -replace '\s+', ' ')"
+}
+
 function Register-PgService([int]$Port) {
     $existing = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
     if ($existing) {
@@ -110,8 +127,11 @@ function Register-PgService([int]$Port) {
         Write-Log "Service $ServiceName registered (automatic start, NetworkService)."
     }
     $svc = Get-Service -Name $ServiceName
-    if ($svc.Status -ne 'Running') { Start-Service -Name $ServiceName }
-    if (-not (Wait-Postgres $Port 90)) { Write-Log 'PostgreSQL did not become ready.'; exit 11 }
+    if ($svc.Status -ne 'Running') {
+        try { Start-Service -Name $ServiceName -ErrorAction Stop }
+        catch { Write-Log "Failed to start service ${ServiceName}: $($_.Exception.Message)"; Write-PgDiagnostics; exit 11 }
+    }
+    if (-not (Wait-Postgres $Port 90)) { Write-Log 'PostgreSQL did not become ready.'; Write-PgDiagnostics; exit 11 }
     Write-Log "PostgreSQL ready on 127.0.0.1:$Port."
 }
 
